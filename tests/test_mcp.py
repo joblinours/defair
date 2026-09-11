@@ -96,3 +96,90 @@ class TestMCPTools:
         text = _get_text(result)
         # When tool returns None, FastMCP may return empty content or "null"
         assert text is None or text == "null" or text == "None"
+
+
+class TestMCPEvidenceTools:
+    @pytest.mark.asyncio
+    async def test_register_evidence(self, mcp_server, sample_file):
+        # Create a case first
+        await mcp_server.call_tool("create_case", {"name": "MCP Evidence Case"})
+
+        result = await mcp_server.call_tool(
+            "register_evidence",
+            {"case_id": "CASE-2026-001", "path": str(sample_file)},
+        )
+        text = _get_text(result)
+        data = json.loads(text)
+        assert data["evidence_number"] == "EVD-001"
+        assert data["filename"] == "sample.txt"
+        assert len(data["sha256"]) == 64
+
+    @pytest.mark.asyncio
+    async def test_list_evidence(self, mcp_server, sample_file):
+        await mcp_server.call_tool("create_case", {"name": "MCP List Evd"})
+        await mcp_server.call_tool(
+            "register_evidence",
+            {"case_id": "CASE-2026-001", "path": str(sample_file)},
+        )
+
+        result = await mcp_server.call_tool("list_evidence", {})
+        text = _get_text(result)
+        data = json.loads(text)
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["filename"] == "sample.txt"
+
+    @pytest.mark.asyncio
+    async def test_list_evidence_filter_by_case(self, mcp_server, sample_file):
+        await mcp_server.call_tool("create_case", {"name": "Filtered Case"})
+        await mcp_server.call_tool(
+            "register_evidence",
+            {"case_id": "CASE-2026-001", "path": str(sample_file)},
+        )
+
+        result = await mcp_server.call_tool(
+            "list_evidence", {"case_id": "CASE-2026-001"}
+        )
+        text = _get_text(result)
+        data = json.loads(text)
+        assert len(data) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_evidence(self, mcp_server, sample_file):
+        await mcp_server.call_tool("create_case", {"name": "MCP Get Evd"})
+        await mcp_server.call_tool(
+            "register_evidence",
+            {"case_id": "CASE-2026-001", "path": str(sample_file)},
+        )
+
+        result = await mcp_server.call_tool(
+            "get_evidence", {"evidence_id": "EVD-001"}
+        )
+        text = _get_text(result)
+        data = json.loads(text)
+        assert data["evidence_number"] == "EVD-001"
+        assert data["filename"] == "sample.txt"
+
+    @pytest.mark.asyncio
+    async def test_get_evidence_not_found(self, mcp_server):
+        result = await mcp_server.call_tool(
+            "get_evidence", {"evidence_id": "EVD-999"}
+        )
+        text = _get_text(result)
+        assert text is None or text == "null" or text == "None"
+
+    @pytest.mark.asyncio
+    async def test_verify_evidence(self, mcp_server, sample_file):
+        await mcp_server.call_tool("create_case", {"name": "MCP Verify"})
+        await mcp_server.call_tool(
+            "register_evidence",
+            {"case_id": "CASE-2026-001", "path": str(sample_file)},
+        )
+
+        result = await mcp_server.call_tool(
+            "verify_evidence", {"evidence_id": "EVD-001"}
+        )
+        text = _get_text(result)
+        data = json.loads(text)
+        assert data["status"] == "ok"
+        assert data["verified"] is True

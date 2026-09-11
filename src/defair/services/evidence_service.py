@@ -105,6 +105,148 @@ async def add_evidence(
     return evidence
 
 
+async def list_evidence(
+    conn: aiosqlite.Connection,
+    case_id: str | None = None,
+) -> list[Evidence]:
+    """List all evidence, optionally filtered by case.
+
+    Args:
+        conn: Database connection.
+        case_id: If provided, only return evidence for this case (ID or case_number).
+    """
+    if case_id:
+        # Resolve case_id (could be UUID or CASE-YYYY-NNN)
+        cursor = await conn.execute(
+            "SELECT id FROM cases WHERE id = ? OR case_number = ?",
+            (case_id, case_id),
+        )
+        case_row = await cursor.fetchone()
+        if case_row is None:
+            raise ValueError(f"Case not found: {case_id}")
+        resolved_case_id = case_row["id"]
+
+        cursor = await conn.execute(
+            "SELECT * FROM evidence WHERE case_id = ? ORDER BY registered_at DESC",
+            (resolved_case_id,),
+        )
+    else:
+        cursor = await conn.execute(
+            "SELECT * FROM evidence ORDER BY registered_at DESC"
+        )
+
+    rows = await cursor.fetchall()
+    return [_row_to_evidence(row) for row in rows]
+
+
+async def get_evidence(
+    conn: aiosqlite.Connection,
+    evidence_id: str,
+) -> Evidence | None:
+    """Get a specific evidence item by ID or evidence number.
+
+    Args:
+        conn: Database connection.
+        evidence_id: Evidence UUID or evidence number (e.g. "EVD-001").
+    """
+    cursor = await conn.execute(
+        "SELECT * FROM evidence WHERE id = ? OR evidence_number = ?",
+        (evidence_id, evidence_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return _row_to_evidence(row)
+
+
+async def verify_evidence(
+    conn: aiosqlite.Connection,
+    evidence_id: str,
+) -> dict:
+    """Verify evidence integrity by re-computing SHA-256 and comparing.
+
+    Args:
+        conn: Database connection.
+        evidence_id: Evidence UUID or evidence number (e.g. "EVD-001").
+
+    Returns:
+        Dict with keys: evidence_number, filename, original_sha256,
+        current_sha256, verified (bool), status ("ok" | "mismatch" | "missing").
+    """
+    evidence = await get_evidence(conn, evidence_id)
+    if evidence is None:
+        raise ValueError(f"Evidence not found: {evidence_id}")
+
+    file_path = Path(evidence.original_path)
+    result = {
+        "evidence_number": evidence.evidence_number,
+        "evidence_id": evidence.id,
+        "filename": evidence.filename,
+        "original_sha256": evidence.sha256,
+    }
+
+    if not file_path.exists():
+        log.warning(
+            "evidence_file_missing",
+            evidence_id=evidence.id,
+            path=str(file_path),
+        )
+        result.update(
+            current_sha256=None,
+            verified=False,
+            status="missing",
+            message=f"File not found: {file_path}",
+        )
+        return result
+
+    current_sha256 = await asyncio.to_thread(_compute_sha256, file_path)
+    verified = current_sha256 == evidence.sha256
+
+    if verified:
+        log.info(
+            "evidence_verified",
+            evidence_id=evidence.id,
+            status="ok",
+        )
+        result.update(
+            current_sha256=current_sha256,
+            verified=True,
+            status="ok",
+            message="Integrity verified — SHA-256 matches.",
+        )
+    else:
+        log.warning(
+            "evidence_integrity_mismatch",
+            evidence_id=evidence.id,
+            original_sha256=evidence.sha256,
+            current_sha256=current_sha256,
+        )
+        result.update(
+            current_sha256=current_sha256,
+            verified=False,
+            status="mismatch",
+            message="INTEGRITY FAILURE — SHA-256 does not match!",
+        )
+
+    return result
+
+
+def _row_to_evidence(row: aiosqlite.Row) -> Evidence:
+    """Convert a database row to an Evidence model."""
+    return Evidence(
+        id=row["id"],
+        evidence_number=row["evidence_number"],
+        case_id=row["case_id"],
+        type=EvidenceType(row["type"]),
+        original_path=row["original_path"],
+        filename=row["filename"],
+        size_bytes=row["size_bytes"],
+        sha256=row["sha256"],
+        read_only=bool(row["read_only"]),
+        registered_at=datetime.fromisoformat(row["registered_at"]),
+    )
+
+
 def _compute_sha256(file_path: Path) -> str:
     """Compute SHA-256 hash of a file using chunked reading."""
     h = hashlib.sha256()

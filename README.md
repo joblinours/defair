@@ -84,8 +84,16 @@ defair cases list
 # Register evidence (computes SHA-256 automatically)
 defair evidence add CASE-2026-001 /evidence/host01.E01 --type disk_image
 
-# Get case details
+# List evidence (all or filtered by case)
+defair evidence list
+defair evidence list --case CASE-2026-001
+
+# Get details
 defair case get CASE-2026-001
+defair evidence get EVD-001
+
+# Verify evidence integrity (re-hash and compare)
+defair evidence verify EVD-001
 ```
 
 ### MCP usage
@@ -97,13 +105,17 @@ DEFAIR exposes a MCP server over **stdio** — compatible with Claude Desktop, C
 defair-mcp
 ```
 
-Available MCP tools (Phase 1):
+Available MCP tools:
 
 | Tool | Description |
 |------|-------------|
 | `list_cases` | List all forensic cases |
 | `create_case` | Create a new investigation case |
 | `get_case` | Get case details by ID or case number |
+| `register_evidence` | Register evidence with SHA-256 hash |
+| `list_evidence` | List evidence (optionally filtered by case) |
+| `get_evidence` | Get evidence details by ID or number |
+| `verify_evidence` | Re-hash evidence and verify integrity |
 
 ### Docker
 
@@ -170,13 +182,13 @@ src/defair/
 
 DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and* its MCP exposure simultaneously.
 
-### ✅ v0.1 — Core + MCP bootstrap (current)
+### ✅ v0.1 — Core + MCP bootstrap + Evidence Manager (current)
 
 - Case & Evidence models
-- CLI: `case create`, `cases list`, `evidence add`
-- MCP server: `list_cases`, `create_case`, `get_case`
+- CLI: `case create`, `cases list`, `case get`, `evidence add`, `evidence list`, `evidence get`, `evidence verify`
+- MCP server: `list_cases`, `create_case`, `get_case`, `register_evidence`, `list_evidence`, `get_evidence`, `verify_evidence`
 - SQLite database with provenance
-- SHA-256 hashing on evidence
+- SHA-256 hashing + integrity verification on evidence
 - Structured logging with correlation IDs
 - Docker + CI/CD
 

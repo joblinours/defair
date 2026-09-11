@@ -16,7 +16,7 @@ from fastmcp import FastMCP
 from defair.config import load_config
 from defair.database import get_initialized_connection
 from defair.logging import configure_logging, get_logger, new_correlation_id
-from defair.services import case_service
+from defair.services import case_service, evidence_service
 
 # Initialize config and logging
 _config = load_config()
@@ -105,6 +105,103 @@ async def get_case(case_id: str) -> dict | None:
     if case is None:
         return None
     return case.model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Evidence management
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def register_evidence(
+    case_id: str,
+    path: str,
+    evidence_type: str = "other",
+) -> dict:
+    """Register a new piece of evidence in a forensic case.
+
+    Computes SHA-256 hash of the file and stores metadata.
+    The original file is never modified or copied.
+
+    Args:
+        case_id: Case number (e.g. "CASE-2026-001") or UUID.
+        path: Absolute path to the evidence file.
+        evidence_type: Type of evidence — one of: disk_image, memory_dump,
+                       logs, triage_archive, pcap, other.
+
+    Returns:
+        The registered evidence with its hash, evidence number, and metadata.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="register_evidence", correlation_id=cid,
+             case_id=case_id, path=path)
+
+    conn = await _get_db()
+    evidence = await evidence_service.add_evidence(conn, case_id, path, evidence_type)
+    return evidence.model_dump(mode="json")
+
+
+@mcp.tool()
+async def list_evidence(case_id: str | None = None) -> list[dict]:
+    """List registered evidence items.
+
+    Args:
+        case_id: Optional — filter by case number (e.g. "CASE-2026-001") or UUID.
+                 If omitted, returns all evidence across all cases.
+
+    Returns:
+        List of evidence items with their metadata and hashes.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_evidence", correlation_id=cid,
+             case_id=case_id)
+
+    conn = await _get_db()
+    items = await evidence_service.list_evidence(conn, case_id)
+    return [e.model_dump(mode="json") for e in items]
+
+
+@mcp.tool()
+async def get_evidence(evidence_id: str) -> dict | None:
+    """Get details of a specific evidence item.
+
+    Args:
+        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
+
+    Returns:
+        Evidence details with metadata and hash, or None if not found.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_evidence", correlation_id=cid,
+             evidence_id=evidence_id)
+
+    conn = await _get_db()
+    evidence = await evidence_service.get_evidence(conn, evidence_id)
+    if evidence is None:
+        return None
+    return evidence.model_dump(mode="json")
+
+
+@mcp.tool()
+async def verify_evidence(evidence_id: str) -> dict:
+    """Verify evidence integrity by re-computing its SHA-256 hash.
+
+    Compares the current file hash against the hash stored at registration.
+    This is a critical forensic operation to detect evidence tampering.
+
+    Args:
+        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
+
+    Returns:
+        Verification result with status ("ok", "mismatch", or "missing"),
+        original and current SHA-256 hashes, and a human-readable message.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="verify_evidence", correlation_id=cid,
+             evidence_id=evidence_id)
+
+    conn = await _get_db()
+    return await evidence_service.verify_evidence(conn, evidence_id)
 
 
 def main() -> None:
