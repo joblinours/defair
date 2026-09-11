@@ -1,0 +1,13 @@
+# DEFAIR configuration
+# See src/defair/config.py for all options and defaults.
+
+storage:
+  database: ~/.defair/defair.db
+  evidence: /evidence
+  cases: ~/.defair/cases
+
+logging:
+  level: INFO
+  format: console    # "json" or "console"
+
+timezone: UTC

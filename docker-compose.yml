@@ -1,0 +1,26 @@
+services:
+  defair:
+    build: .
+    volumes:
+      - ./evidence:/evidence:ro       # Evidence files — read-only
+      - defair-data:/data             # SQLite database
+      - ./defair.yaml:/app/defair.yaml:ro  # Configuration
+    environment:
+      - DEFAIR_DB_PATH=/data/defair.db
+    command: ["defair", "--db", "/data/defair.db", "--help"]
+
+  # MCP server — stdio transport
+  # Usage: docker compose run --rm mcp
+  mcp:
+    build: .
+    volumes:
+      - ./evidence:/evidence:ro
+      - defair-data:/data
+      - ./defair.yaml:/app/defair.yaml:ro
+    environment:
+      - DEFAIR_DB_PATH=/data/defair.db
+    command: ["defair-mcp"]
+    stdin_open: true
+
+volumes:
+  defair-data:
