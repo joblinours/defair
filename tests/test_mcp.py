@@ -7,7 +7,6 @@ via call_tool() — no subprocess or network needed.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -22,6 +21,7 @@ async def mcp_server(tmp_path):
     gets its own isolated database.
     """
     from unittest.mock import patch
+
     from defair.config import DefairConfig, StorageConfig
 
     db_path = tmp_path / "mcp_test.db"
@@ -35,6 +35,7 @@ async def mcp_server(tmp_path):
     with patch("defair.mcp_server.server._config", test_config), \
          patch("defair.mcp_server.server._db_conn", conn):
         import importlib
+
         import defair.mcp_server.server as server_module
         importlib.reload(server_module)
 

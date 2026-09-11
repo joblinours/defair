@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -70,7 +70,7 @@ async def add_evidence(
         filename=file_path.name,
         size_bytes=size_bytes,
         sha256=sha256,
-        registered_at=datetime.now(timezone.utc),
+        registered_at=datetime.now(UTC),
     )
 
     await conn.execute(

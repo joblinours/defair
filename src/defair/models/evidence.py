@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
 
@@ -36,7 +36,7 @@ class Evidence(BaseModel):
     size_bytes: int | None = None
     sha256: str | None = None
     read_only: bool = True
-    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 def generate_evidence_number(sequence: int) -> str:

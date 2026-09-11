@@ -1,52 +1,281 @@
 # DEFAIR
 
-**Digital Forensics & Incident Response platform** — MCP-first, containerized, modular.
+**Digital Forensics & Incident Response platform — MCP-first, containerized, modular.**
 
-> Une plateforme DFIR reproductible capable d'orchestrer de nombreux moteurs forensic, d'unifier leurs résultats et d'exposer l'investigation à un humain ou à un agent via CLI, API et MCP.
+[![CI](https://github.com/joblinours/defair/actions/workflows/ci.yml/badge.svg)](https://github.com/joblinours/defair/actions/workflows/ci.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Installation
+---
+
+## What is DEFAIR?
+
+DEFAIR is a **reproducible DFIR platform** that orchestrates multiple forensic engines, unifies their results, and exposes the investigation to a human or an AI agent via **CLI**, **API**, and **MCP** (Model Context Protocol).
+
+It is **not** "a giant Docker container with 50 forensic binaries". It is a **forensic orchestration platform** where external tools are specialized engines managed through a common architecture.
+
+```
+                     Analyst / AI Agent
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+               CLI                     MCP
+                │                       │
+                └───────────┬───────────┘
+                            │
+                     Service Layer
+                            │
+                    ┌───────┴────────┐
+                    │  Orchestrator  │
+                    └───────┬────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+    Evidence Manager   Tool Registry     Job Engine
+          │                 │                 │
+          └─────────────────┼─────────────────┘
+                            │
+                  Normalization Layer
+                            │
+             ┌──────────────┼───────────────┐
+             │              │               │
+          Timeline       Findings          IOC
+             │              │               │
+             └──────────────┼───────────────┘
+                            │
+                     Reports / Export
+```
+
+### Core principles
+
+1. **MCP-first** — every capability is exposed via CLI *and* MCP simultaneously
+2. **Read-only on evidence** — source files are never modified
+3. **Hash & provenance** — every result is traceable back to its source
+4. **Reproducible** — every execution is logged, versioned, and replayable
+5. **No shell via MCP** — the MCP exposes forensic operations, not arbitrary commands
+6. **Offline-first** — designed to work without internet access
+
+---
+
+## Quick start
+
+### Installation
 
 ```bash
+# Clone
+git clone https://github.com/joblinours/defair.git
+cd defair
+
+# Create venv and install
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Quickstart — CLI
+### CLI usage
 
 ```bash
-defair --help
-defair case create "Mon incident"
+# Create a forensic case
+defair case create "Incident 2026-09 — Host compromise"
+
+# List cases
 defair cases list
-defair evidence add CASE-2026-001 /evidence/host01.E01
+
+# Register evidence (computes SHA-256 automatically)
+defair evidence add CASE-2026-001 /evidence/host01.E01 --type disk_image
+
+# Get case details
+defair case get CASE-2026-001
 ```
 
-## Quickstart — MCP
+### MCP usage
 
-Le serveur MCP s'utilise via stdio (Claude Desktop, Claude Code, etc.) :
+DEFAIR exposes a MCP server over **stdio** — compatible with Claude Desktop, Claude Code, and any MCP client:
 
 ```bash
+# Run the MCP server
 defair-mcp
 ```
 
-## Tests
+Available MCP tools (Phase 1):
+
+| Tool | Description |
+|------|-------------|
+| `list_cases` | List all forensic cases |
+| `create_case` | Create a new investigation case |
+| `get_case` | Get case details by ID or case number |
+
+### Docker
 
 ```bash
-pytest tests/ -v
+# Build
+docker compose build
+
+# Run CLI
+docker compose run --rm defair defair case create "Docker test"
+
+# Run MCP server
+docker compose run --rm mcp
 ```
+
+---
 
 ## Architecture
 
+DEFAIR follows a **triple-interface** architecture: CLI, MCP, and API all call the same async Service Layer. No business logic lives in the interface layers.
+
 ```
-CLI (click)          MCP (FastMCP)
-     │                     │
-     └─────────┬───────────┘
+CLI (click)          MCP (FastMCP)          API (FastAPI — planned)
+     │                     │                      │
+     │  run_sync()         │  async direct         │  async direct
+     └─────────┬───────────┴──────────────────────┘
                │
         Service Layer (async)
                │
           SQLite (aiosqlite)
 ```
 
-CLI et MCP appellent le même Service Layer — aucune logique métier dans les couches d'interface.
+### Project structure
 
-## Licence
+```
+src/defair/
+├── config.py              # YAML + Pydantic configuration
+├── logging.py             # Structured logging (structlog)
+├── database.py            # SQLite schema & connection management
+├── models/                # Pydantic data models (Case, Evidence, ...)
+├── services/              # Async service layer (shared by CLI & MCP)
+├── cli/                   # Click CLI commands
+└── mcp_server/            # FastMCP server & tool definitions
+```
+
+### Tech stack
+
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.13 |
+| CLI | Click + Rich |
+| MCP server | FastMCP 4.x (stdio) |
+| Database | SQLite via aiosqlite |
+| Models | Pydantic v2 |
+| Logging | structlog (JSON / console) |
+| Config | YAML + Pydantic |
+| Tests | pytest + pytest-asyncio |
+| Lint | Ruff |
+| Container | Docker + Compose |
+| CI/CD | GitHub Actions |
+
+---
+
+## Roadmap
+
+DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and* its MCP exposure simultaneously.
+
+### ✅ v0.1 — Core + MCP bootstrap (current)
+
+- Case & Evidence models
+- CLI: `case create`, `cases list`, `evidence add`
+- MCP server: `list_cases`, `create_case`, `get_case`
+- SQLite database with provenance
+- SHA-256 hashing on evidence
+- Structured logging with correlation IDs
+- Docker + CI/CD
+
+### 🔜 v0.2 — Windows foundation + MCP analysis
+
+- **Dissect** integration (host discovery, artifact identification)
+- **EZ Tools** (MFTECmd, EvtxECmd, RECmd, PECmd) with wrappers
+- Normalization layer
+- MCP tools: `discover_evidence`, `analyze_evtx`, `analyze_mft`, `analyze_registry`
+
+### 📋 v0.3 — Detection + Timeline + MCP hunting
+
+- **Hayabusa** integration (Sigma detection, EVTX hunting)
+- Timeline Engine (unified schema, SQLite backend, search)
+- Findings Engine (severity, confidence, IOC correlation)
+- MCP tools: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`
+
+### 📋 v0.4 — Orchestration + MCP profiles
+
+- DAG-based analysis orchestration
+- Declarative profiles (`windows-triage`, `windows-full`, `ransomware`, `persistence`)
+- **Plaso** integration (supertimeline)
+- Worker scheduling, parallel jobs, retry, timeout
+- MCP tools: `run_profile`, `analyze_evidence`
+- **🎯 Milestone: MVP MCP — an AI agent can conduct a full Windows investigation via MCP**
+
+### 📋 v0.5 — Reporting + API REST
+
+- Forensic reports (Markdown, HTML)
+- REST API (FastAPI + OpenAPI)
+- MCP tools: `generate_report`, `export_case`
+
+### 📋 v0.6+ — Extended forensics
+
+- **Volatility 3** — memory forensics
+- **Zeek / TShark / Suricata** — network DFIR
+- **Linux DFIR** — journald, SSH, cron, systemd, Docker artifacts
+- Web UI
+- RBAC, audit trail, supply chain security
+
+### 📋 v1.0 — DEFAIR
+
+- Complete forensic workflow
+- Windows + Linux + Memory + Network
+- Stable MCP + API
+- Reproducible reports
+- Offline installation
+- Production-ready security
+
+> See [defair_Roadmap.md](defair_Roadmap.md) for the full detailed roadmap.
+
+---
+
+## Forensic engines (planned)
+
+| Engine | Purpose | Phase |
+|--------|---------|-------|
+| **Dissect** | Host discovery, artifact identification, filesystem access | v0.2 |
+| **EZ Tools** | Windows artifacts (MFT, EVTX, Registry, Prefetch, Amcache, ...) | v0.2 |
+| **Hayabusa** | EVTX detection with Sigma rules, threat hunting | v0.3 |
+| **Plaso** | Supertimeline, multi-source timestamp normalization | v0.4 |
+| **Volatility 3** | Memory forensics (processes, network, DLLs, persistence) | v0.6 |
+| **Chainsaw** | Fast EVTX search, Sigma detection | v0.6 |
+| **Zeek** | Network traffic analysis, protocol logs | v0.6 |
+| **TShark** | Packet capture analysis | v0.6 |
+| **Suricata** | Network IDS, alert generation | v0.6 |
+
+---
+
+## Development
+
+```bash
+# Run tests
+pytest tests/ -v
+
+# Lint
+ruff check src/ tests/
+
+# Run CLI
+defair --help
+
+# Run MCP server
+defair-mcp
+```
+
+### Adding a new MCP tool
+
+1. Add the service function in `src/defair/services/`
+2. Add the CLI command in `src/defair/cli/`
+3. Add the MCP tool in `src/defair/mcp_server/server.py` with `@mcp.tool()`
+4. Add tests (unit + CLI + MCP integration)
+5. Both CLI and MCP **must** call the same service function
+
+---
+
+## License
 
 MIT
+
+---
+
+> *DEFAIR: a reproducible DFIR platform capable of orchestrating forensic engines, unifying their results, and exposing the investigation to a human or an agent via CLI, API, and MCP.*

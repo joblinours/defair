@@ -6,7 +6,7 @@ No business logic should live in the CLI or MCP layers.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 import structlog
@@ -22,7 +22,7 @@ async def create_case(
     description: str = "",
 ) -> Case:
     """Create a new forensic case with an auto-generated case number."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     year = now.year
 
     # Get next sequence number for the current year

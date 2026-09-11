@@ -1,6 +1,5 @@
 """Tests for DEFAIR data models."""
 
-from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
