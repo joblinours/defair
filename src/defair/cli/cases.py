@@ -6,6 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from defair.cli.proxy import get_container_or_fail, proxy_command
 from defair.database import get_initialized_connection, run_sync
 from defair.services import case_service
 
@@ -21,6 +22,10 @@ def cases_group() -> None:
 @click.pass_context
 def cases_list(ctx: click.Context) -> None:
     """List all forensic cases."""
+    container = get_container_or_fail(ctx)
+    if container:
+        return proxy_command(container, ["cases", "list"])
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:
@@ -66,6 +71,13 @@ def case_group() -> None:
 @click.pass_context
 def case_create(ctx: click.Context, name: str, description: str) -> None:
     """Create a new forensic case."""
+    container = get_container_or_fail(ctx)
+    if container:
+        cmd = ["case", "create", name]
+        if description:
+            cmd.extend(["--description", description])
+        return proxy_command(container, cmd)
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:
@@ -89,6 +101,10 @@ def case_create(ctx: click.Context, name: str, description: str) -> None:
 @click.pass_context
 def case_get(ctx: click.Context, case_id: str) -> None:
     """Get details of a specific case (by ID or case number)."""
+    container = get_container_or_fail(ctx)
+    if container:
+        return proxy_command(container, ["case", "get", case_id])
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:

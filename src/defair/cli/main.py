@@ -12,15 +12,32 @@ from defair.config import load_config
 from defair.logging import configure_logging
 
 
+def _is_inside_container() -> bool:
+    """Detect if we are running inside a Docker container."""
+    from pathlib import Path
+
+    return Path("/.dockerenv").exists()
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="defair")
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Config file path.")
 @click.option("--db", "db_path", type=click.Path(), default=None, help="Override database path.")
+@click.option(
+    "-c", "--container", "container_name", default=None, envvar="DEFAIR_CONTAINER",
+    help="Target container for case/evidence commands. Required on host.",
+)
 @click.pass_context
-def cli(ctx: click.Context, config_path: str | None, db_path: str | None) -> None:
+def cli(ctx: click.Context, config_path: str | None, db_path: str | None, container_name: str | None) -> None:
     """DEFAIR — Digital Forensics & Incident Response platform.
 
     MCP-first, containerized, modular DFIR workbench.
+
+    On the host, use -c <container> to target a forensic container:
+
+      defair -c defair-case-2026-001 case create "My case"
+
+    Inside a container, commands run locally (no -c needed).
     """
     from pathlib import Path
 
@@ -34,6 +51,8 @@ def cli(ctx: click.Context, config_path: str | None, db_path: str | None) -> Non
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
     ctx.obj["db_path"] = str(config.storage.database)
+    ctx.obj["container"] = container_name
+    ctx.obj["inside_container"] = _is_inside_container()
 
 
 # Register sub-groups

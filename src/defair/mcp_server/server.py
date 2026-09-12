@@ -1,22 +1,19 @@
 """DEFAIR MCP server — FastMCP-based forensic tools.
 
-Exposes forensic capabilities as MCP tools. Each tool calls the same
-Service Layer used by the CLI — no business logic lives here.
+Exposes forensic capabilities as MCP tools. Case and evidence operations
+are proxied into forensic containers via docker exec. Container management
+runs directly on the host via Docker SDK.
 
 Transport: stdio (standard for Claude Desktop / Claude Code integration).
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import aiosqlite
 from fastmcp import FastMCP
 
 from defair.config import load_config
-from defair.database import get_initialized_connection
 from defair.logging import configure_logging, get_logger, new_correlation_id
-from defair.services import case_service, container_service, evidence_service
+from defair.services import container_service
 
 # Initialize config and logging
 _config = load_config()
@@ -28,184 +25,45 @@ mcp = FastMCP(
     "defair",
     instructions=(
         "DEFAIR — Digital Forensics & Incident Response platform. "
-        "Use these tools to manage forensic cases, register evidence, "
-        "and conduct investigations. All operations are traced and reproducible."
+        "Use these tools to manage forensic containers, cases, evidence, "
+        "and conduct investigations. All case/evidence operations run "
+        "inside isolated Docker containers. "
+        "Typical workflow: create_container → create_case → register_evidence → analyze."
     ),
 )
 
-# Lazy database connection
-_db_conn: aiosqlite.Connection | None = None
-
-
-async def _get_db() -> aiosqlite.Connection:
-    """Get or create the database connection (lazy init)."""
-    global _db_conn
-    if _db_conn is None:
-        db_path = Path(_config.storage.database)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        _db_conn = await get_initialized_connection(db_path)
-        log.info("database_connected", db_path=str(db_path))
-    return _db_conn
-
 
 # ---------------------------------------------------------------------------
-# MCP Tools — Case management
+# Helper — proxy a defair command into a container and parse JSON output
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
-async def list_cases() -> list[dict]:
-    """List all forensic cases.
-
-    Returns a list of cases with their case number, name, status,
-    and creation date. Cases are ordered by creation date (newest first).
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="list_cases", correlation_id=cid)
-
-    conn = await _get_db()
-    cases = await case_service.list_cases(conn)
-    return [c.model_dump(mode="json") for c in cases]
-
-
-@mcp.tool()
-async def create_case(name: str, description: str = "") -> dict:
-    """Create a new forensic investigation case.
+async def _proxy_defair(container_name: str, args: list[str]) -> dict | list | str:
+    """Execute a defair CLI command inside a container and return parsed output.
 
     Args:
-        name: Name of the case (e.g. "Incident host-01 ransomware").
-        description: Optional longer description of the case.
+        container_name: Target container.
+        args: CLI args (e.g. ["case", "create", "My case", "--description", "..."]).
 
     Returns:
-        The created case with its auto-generated case number (CASE-YYYY-NNN).
+        Parsed JSON if the command outputs JSON, otherwise raw stdout text.
     """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="create_case", correlation_id=cid, name=name)
+    result = await container_service.exec_in_container(
+        container_name,
+        ["defair", *args],
+    )
 
-    conn = await _get_db()
-    case = await case_service.create_case(conn, name, description)
-    return case.model_dump(mode="json")
+    if result["exit_code"] != 0:
+        error_msg = result["stderr"] or result["stdout"] or "Command failed"
+        raise RuntimeError(
+            f"Command failed in container '{container_name}' (exit {result['exit_code']}): {error_msg}"
+        )
 
-
-@mcp.tool()
-async def get_case(case_id: str) -> dict | None:
-    """Get details of a specific forensic case.
-
-    Args:
-        case_id: The case number (e.g. "CASE-2026-001") or internal UUID.
-
-    Returns:
-        The case details, or None if not found.
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="get_case", correlation_id=cid, case_id=case_id)
-
-    conn = await _get_db()
-    case = await case_service.get_case(conn, case_id)
-    if case is None:
-        return None
-    return case.model_dump(mode="json")
+    return result["stdout"]
 
 
 # ---------------------------------------------------------------------------
-# MCP Tools — Evidence management
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def register_evidence(
-    case_id: str,
-    path: str,
-    evidence_type: str = "other",
-) -> dict:
-    """Register a new piece of evidence in a forensic case.
-
-    Computes SHA-256 hash of the file and stores metadata.
-    The original file is never modified or copied.
-
-    Args:
-        case_id: Case number (e.g. "CASE-2026-001") or UUID.
-        path: Absolute path to the evidence file.
-        evidence_type: Type of evidence — one of: disk_image, memory_dump,
-                       logs, triage_archive, pcap, other.
-
-    Returns:
-        The registered evidence with its hash, evidence number, and metadata.
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="register_evidence", correlation_id=cid,
-             case_id=case_id, path=path)
-
-    conn = await _get_db()
-    evidence = await evidence_service.add_evidence(conn, case_id, path, evidence_type)
-    return evidence.model_dump(mode="json")
-
-
-@mcp.tool()
-async def list_evidence(case_id: str | None = None) -> list[dict]:
-    """List registered evidence items.
-
-    Args:
-        case_id: Optional — filter by case number (e.g. "CASE-2026-001") or UUID.
-                 If omitted, returns all evidence across all cases.
-
-    Returns:
-        List of evidence items with their metadata and hashes.
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="list_evidence", correlation_id=cid,
-             case_id=case_id)
-
-    conn = await _get_db()
-    items = await evidence_service.list_evidence(conn, case_id)
-    return [e.model_dump(mode="json") for e in items]
-
-
-@mcp.tool()
-async def get_evidence(evidence_id: str) -> dict | None:
-    """Get details of a specific evidence item.
-
-    Args:
-        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
-
-    Returns:
-        Evidence details with metadata and hash, or None if not found.
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="get_evidence", correlation_id=cid,
-             evidence_id=evidence_id)
-
-    conn = await _get_db()
-    evidence = await evidence_service.get_evidence(conn, evidence_id)
-    if evidence is None:
-        return None
-    return evidence.model_dump(mode="json")
-
-
-@mcp.tool()
-async def verify_evidence(evidence_id: str) -> dict:
-    """Verify evidence integrity by re-computing its SHA-256 hash.
-
-    Compares the current file hash against the hash stored at registration.
-    This is a critical forensic operation to detect evidence tampering.
-
-    Args:
-        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
-
-    Returns:
-        Verification result with status ("ok", "mismatch", or "missing"),
-        original and current SHA-256 hashes, and a human-readable message.
-    """
-    cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="verify_evidence", correlation_id=cid,
-             evidence_id=evidence_id)
-
-    conn = await _get_db()
-    return await evidence_service.verify_evidence(conn, evidence_id)
-
-
-# ---------------------------------------------------------------------------
-# MCP Tools — Container orchestration
+# MCP Tools — Container orchestration (run on host)
 # ---------------------------------------------------------------------------
 
 
@@ -223,7 +81,8 @@ async def create_container(
     Evidence is mounted read-only, workspace is persistent.
 
     Args:
-        case_id: Case number (e.g. "CASE-2026-001") to associate.
+        case_id: Case identifier for the container name (e.g. "CASE-2026-001").
+                 This is just a label — the case will be created inside the container.
         name: Container name (auto-generated from case_id if omitted).
         image: Docker image (default: ghcr.io/joblinours/defair:latest).
         evidence_paths: Host paths to mount as read-only evidence.
@@ -391,6 +250,163 @@ async def container_logs(name_or_id: str, tail: int = 100) -> str:
              name=name_or_id)
 
     return await container_service.container_logs(name_or_id, tail=tail)
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Case management (proxied into container)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def create_case(container: str, name: str, description: str = "") -> str:
+    """Create a new forensic investigation case inside a container.
+
+    Args:
+        container: Container name (e.g. "defair-case-2026-001").
+        name: Name of the case (e.g. "Incident host-01 ransomware").
+        description: Optional longer description.
+
+    Returns:
+        Command output with the created case details.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="create_case", correlation_id=cid,
+             container=container, name=name)
+
+    cmd = ["case", "create", name]
+    if description:
+        cmd.extend(["--description", description])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_cases(container: str) -> str:
+    """List all forensic cases in a container.
+
+    Args:
+        container: Container name (e.g. "defair-case-2026-001").
+
+    Returns:
+        Table of cases with case number, name, status, and creation date.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_cases", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["cases", "list"])
+
+
+@mcp.tool()
+async def get_case(container: str, case_id: str) -> str:
+    """Get details of a specific forensic case.
+
+    Args:
+        container: Container name.
+        case_id: The case number (e.g. "CASE-2026-001") or internal UUID.
+
+    Returns:
+        Case details.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_case", correlation_id=cid,
+             container=container, case_id=case_id)
+
+    return await _proxy_defair(container, ["case", "get", case_id])
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Evidence management (proxied into container)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def register_evidence(
+    container: str,
+    case_id: str,
+    path: str,
+    evidence_type: str = "other",
+) -> str:
+    """Register a new piece of evidence in a forensic case.
+
+    The path must be accessible inside the container (e.g. /evidence/disk.E01).
+    Evidence files are mounted read-only when the container is created.
+
+    Args:
+        container: Container name.
+        case_id: Case number (e.g. "CASE-2026-001") or UUID.
+        path: Path to the evidence file INSIDE the container.
+        evidence_type: Type — disk_image, memory_dump, logs, triage_archive, pcap, other.
+
+    Returns:
+        Registration details with SHA-256 hash.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="register_evidence", correlation_id=cid,
+             container=container, case_id=case_id, path=path)
+
+    return await _proxy_defair(
+        container, ["evidence", "add", case_id, path, "--type", evidence_type]
+    )
+
+
+@mcp.tool()
+async def list_evidence(container: str, case_id: str | None = None) -> str:
+    """List registered evidence items in a container.
+
+    Args:
+        container: Container name.
+        case_id: Optional — filter by case number or UUID.
+
+    Returns:
+        Table of evidence items.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_evidence", correlation_id=cid,
+             container=container, case_id=case_id)
+
+    cmd = ["evidence", "list"]
+    if case_id:
+        cmd.extend(["--case", case_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def get_evidence(container: str, evidence_id: str) -> str:
+    """Get details of a specific evidence item.
+
+    Args:
+        container: Container name.
+        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
+
+    Returns:
+        Evidence details with metadata and hash.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_evidence", correlation_id=cid,
+             container=container, evidence_id=evidence_id)
+
+    return await _proxy_defair(container, ["evidence", "get", evidence_id])
+
+
+@mcp.tool()
+async def verify_evidence(container: str, evidence_id: str) -> str:
+    """Verify evidence integrity by re-computing its SHA-256 hash.
+
+    Compares the current file hash against the hash stored at registration.
+    Critical forensic operation to detect evidence tampering.
+
+    Args:
+        container: Container name.
+        evidence_id: Evidence number (e.g. "EVD-001") or internal UUID.
+
+    Returns:
+        Verification result (ok, mismatch, or missing).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="verify_evidence", correlation_id=cid,
+             container=container, evidence_id=evidence_id)
+
+    return await _proxy_defair(container, ["evidence", "verify", evidence_id])
 
 
 def main() -> None:

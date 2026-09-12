@@ -6,6 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from defair.cli.proxy import get_container_or_fail, proxy_command
 from defair.database import get_initialized_connection, run_sync
 from defair.services import evidence_service
 
@@ -19,7 +20,7 @@ def evidence_group() -> None:
 
 @evidence_group.command("add")
 @click.argument("case_id")
-@click.argument("path", type=click.Path(exists=True))
+@click.argument("path")
 @click.option("--type", "evidence_type", default="other",
               type=click.Choice(["disk_image", "memory_dump", "logs", "triage_archive", "pcap", "other"]),
               help="Type of evidence.")
@@ -28,7 +29,14 @@ def evidence_add(ctx: click.Context, case_id: str, path: str, evidence_type: str
     """Register a new piece of evidence in a case.
 
     Computes SHA-256 hash and stores metadata. The original file is never modified.
+
+    PATH is the path inside the container (e.g. /evidence/disk.E01).
     """
+    container = get_container_or_fail(ctx)
+    if container:
+        cmd = ["evidence", "add", case_id, path, "--type", evidence_type]
+        return proxy_command(container, cmd)
+
     db_path = ctx.obj["db_path"]
 
     console.print(f"[dim]Hashing {path}...[/dim]")
@@ -57,6 +65,13 @@ def evidence_add(ctx: click.Context, case_id: str, path: str, evidence_type: str
 @click.pass_context
 def evidence_list(ctx: click.Context, case_id: str | None) -> None:
     """List registered evidence items."""
+    container = get_container_or_fail(ctx)
+    if container:
+        cmd = ["evidence", "list"]
+        if case_id:
+            cmd.extend(["--case", case_id])
+        return proxy_command(container, cmd)
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:
@@ -98,6 +113,10 @@ def evidence_list(ctx: click.Context, case_id: str | None) -> None:
 @click.pass_context
 def evidence_get(ctx: click.Context, evidence_id: str) -> None:
     """Get details of a specific evidence item by ID or evidence number."""
+    container = get_container_or_fail(ctx)
+    if container:
+        return proxy_command(container, ["evidence", "get", evidence_id])
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:
@@ -132,6 +151,10 @@ def evidence_verify(ctx: click.Context, evidence_id: str) -> None:
 
     Compares the current file hash against the stored hash from registration.
     """
+    container = get_container_or_fail(ctx)
+    if container:
+        return proxy_command(container, ["evidence", "verify", evidence_id])
+
     db_path = ctx.obj["db_path"]
 
     async def _run() -> None:
