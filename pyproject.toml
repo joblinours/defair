@@ -1,6 +1,6 @@
 [project]
 name = "defair"
-version = "0.1.0"
+version = "0.1.5"
 description = "DEFAIR — Digital Forensics & Incident Response platform. MCP-first, containerized, modular."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,6 +16,7 @@ dependencies = [
     "rich>=14.0",
     "fastmcp>=2.13",
     "pyyaml>=6.0",
+    "docker>=7.1",
 ]
 
 [project.optional-dependencies]

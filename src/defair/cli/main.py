@@ -6,6 +6,7 @@ import click
 
 from defair import __version__
 from defair.cli.cases import case_group, cases_group
+from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
 from defair.config import load_config
 from defair.logging import configure_logging
@@ -39,3 +40,4 @@ def cli(ctx: click.Context, config_path: str | None, db_path: str | None) -> Non
 cli.add_command(cases_group)
 cli.add_command(case_group)
 cli.add_command(evidence_group)
+cli.add_command(container_group)

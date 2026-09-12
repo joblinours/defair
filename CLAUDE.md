@@ -14,10 +14,19 @@ CLI (click)          MCP (FastMCP)
                │
         Service Layer (async)
                │
-          SQLite (aiosqlite)
+     ┌─────────┴──────────┐
+     │                    │
+  SQLite              Docker SDK
+  (aiosqlite)         (container_service)
+                          │
+               Forensic Containers
+               (evidence :ro, workspace :rw)
 ```
 
 **Rule:** No business logic in CLI or MCP layers. Both call the same async service functions.
+
+**Container pattern:** The wrapper runs on the HOST and orchestrates Docker containers
+via the Docker SDK. One container per investigation. Evidence is mounted read-only.
 
 ## Development
 
@@ -49,7 +58,9 @@ defair-mcp
 ## Key files
 
 - `src/defair/services/` — shared service layer (the core)
+- `src/defair/services/container_service.py` — Docker orchestration (runs on HOST)
 - `src/defair/cli/` — click commands
+- `src/defair/cli/containers.py` — container management CLI
 - `src/defair/mcp_server/server.py` — FastMCP tools
 - `src/defair/models/` — Pydantic data models
 - `src/defair/database.py` — SQLite schema and connection management

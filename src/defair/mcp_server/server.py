@@ -16,7 +16,7 @@ from fastmcp import FastMCP
 from defair.config import load_config
 from defair.database import get_initialized_connection
 from defair.logging import configure_logging, get_logger, new_correlation_id
-from defair.services import case_service, evidence_service
+from defair.services import case_service, container_service, evidence_service
 
 # Initialize config and logging
 _config = load_config()
@@ -202,6 +202,195 @@ async def verify_evidence(evidence_id: str) -> dict:
 
     conn = await _get_db()
     return await evidence_service.verify_evidence(conn, evidence_id)
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Container orchestration
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def create_container(
+    case_id: str | None = None,
+    name: str | None = None,
+    image: str = container_service.DEFAULT_IMAGE,
+    evidence_paths: list[str] | None = None,
+    start: bool = True,
+) -> dict:
+    """Create a new DEFAIR forensic container.
+
+    Creates an isolated Docker container for a forensic investigation.
+    Evidence is mounted read-only, workspace is persistent.
+
+    Args:
+        case_id: Case number (e.g. "CASE-2026-001") to associate.
+        name: Container name (auto-generated from case_id if omitted).
+        image: Docker image (default: ghcr.io/joblinours/defair:latest).
+        evidence_paths: Host paths to mount as read-only evidence.
+        start: Whether to start the container after creation (default: True).
+
+    Returns:
+        Container details (name, ID, status, workspace path).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="create_container", correlation_id=cid,
+             case_id=case_id)
+
+    info = await container_service.create_container(
+        case_id=case_id,
+        name=name,
+        image=image,
+        evidence_paths=evidence_paths,
+    )
+
+    if start:
+        info = await container_service.start_container(info.name)
+
+    return info.to_dict()
+
+
+@mcp.tool()
+async def list_containers(
+    all_states: bool = True,
+    case_id: str | None = None,
+) -> list[dict]:
+    """List DEFAIR forensic containers.
+
+    Args:
+        all_states: Include stopped containers (default: True).
+        case_id: Filter by case ID/number.
+
+    Returns:
+        List of containers with their status, image, and case association.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_containers", correlation_id=cid)
+
+    containers = await container_service.list_containers(
+        all_states=all_states, case_id=case_id
+    )
+    return [c.to_dict() for c in containers]
+
+
+@mcp.tool()
+async def get_container_info(name_or_id: str) -> dict | None:
+    """Get details of a specific DEFAIR container.
+
+    Args:
+        name_or_id: Container name or ID.
+
+    Returns:
+        Container details, or None if not found.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_container_info", correlation_id=cid,
+             name=name_or_id)
+
+    info = await container_service.get_container(name_or_id)
+    if info is None:
+        return None
+    return info.to_dict()
+
+
+@mcp.tool()
+async def start_container(name_or_id: str) -> dict:
+    """Start a stopped DEFAIR forensic container.
+
+    Args:
+        name_or_id: Container name or ID.
+
+    Returns:
+        Updated container details with new status.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="start_container", correlation_id=cid,
+             name=name_or_id)
+
+    info = await container_service.start_container(name_or_id)
+    return info.to_dict()
+
+
+@mcp.tool()
+async def stop_container(name_or_id: str, timeout: int = 10) -> dict:
+    """Stop a running DEFAIR forensic container.
+
+    Args:
+        name_or_id: Container name or ID.
+        timeout: Seconds to wait before killing (default: 10).
+
+    Returns:
+        Updated container details with new status.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="stop_container", correlation_id=cid,
+             name=name_or_id)
+
+    info = await container_service.stop_container(name_or_id, timeout=timeout)
+    return info.to_dict()
+
+
+@mcp.tool()
+async def remove_container(name_or_id: str, force: bool = False) -> dict:
+    """Remove a DEFAIR forensic container.
+
+    Args:
+        name_or_id: Container name or ID.
+        force: Force removal even if running (default: False).
+
+    Returns:
+        Confirmation with the name of the removed container.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="remove_container", correlation_id=cid,
+             name=name_or_id)
+
+    return await container_service.remove_container(name_or_id, force=force)
+
+
+@mcp.tool()
+async def exec_in_container(
+    name_or_id: str,
+    command: str,
+    workdir: str | None = None,
+) -> dict:
+    """Execute a command inside a running DEFAIR container.
+
+    Use this to run forensic tools inside an isolated container.
+    The container must be running.
+
+    Args:
+        name_or_id: Container name or ID.
+        command: Shell command to execute (e.g. "ls -la /evidence").
+        workdir: Working directory inside the container.
+
+    Returns:
+        Execution result with exit_code, stdout, and stderr.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="exec_in_container", correlation_id=cid,
+             name=name_or_id, command=command)
+
+    return await container_service.exec_in_container(
+        name_or_id, command, workdir=workdir
+    )
+
+
+@mcp.tool()
+async def container_logs(name_or_id: str, tail: int = 100) -> str:
+    """Get logs from a DEFAIR forensic container.
+
+    Args:
+        name_or_id: Container name or ID.
+        tail: Number of lines from the end (default: 100).
+
+    Returns:
+        Container log output as text.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="container_logs", correlation_id=cid,
+             name=name_or_id)
+
+    return await container_service.container_logs(name_or_id, tail=tail)
 
 
 def main() -> None:

@@ -96,6 +96,29 @@ defair evidence get EVD-001
 defair evidence verify EVD-001
 ```
 
+### Container orchestration
+
+DEFAIR runs forensic tools in isolated Docker containers — one per investigation:
+
+```bash
+# Create a forensic container linked to a case
+defair container create --case CASE-2026-001 --evidence /evidence/host01.E01
+
+# List containers
+defair container list
+
+# Execute a command inside the container
+defair container exec defair-case-2026-001 ls -la /evidence
+
+# Get container details / logs
+defair container get defair-case-2026-001
+defair container logs defair-case-2026-001
+
+# Stop / remove
+defair container stop defair-case-2026-001
+defair container remove defair-case-2026-001
+```
+
 ### MCP usage
 
 DEFAIR exposes a MCP server over **stdio** — compatible with Claude Desktop, Claude Code, and any MCP client:
@@ -116,6 +139,14 @@ Available MCP tools:
 | `list_evidence` | List evidence (optionally filtered by case) |
 | `get_evidence` | Get evidence details by ID or number |
 | `verify_evidence` | Re-hash evidence and verify integrity |
+| `create_container` | Create an isolated forensic container |
+| `list_containers` | List DEFAIR containers |
+| `get_container_info` | Get container details |
+| `start_container` | Start a stopped container |
+| `stop_container` | Stop a running container |
+| `remove_container` | Remove a container |
+| `exec_in_container` | Execute a command inside a container |
+| `container_logs` | Get container logs |
 
 ### Docker
 
@@ -144,7 +175,15 @@ CLI (click)          MCP (FastMCP)          API (FastAPI — planned)
                │
         Service Layer (async)
                │
-          SQLite (aiosqlite)
+     ┌─────────┴──────────┐
+     │                    │
+  SQLite            Docker SDK
+  (aiosqlite)       (container_service)
+                          │
+              ┌───────────┴───────────┐
+              │  DEFAIR Container 1   │  evidence :ro
+              │  DEFAIR Container 2   │  workspace :rw
+              └───────────────────────┘
 ```
 
 ### Project structure
@@ -182,15 +221,24 @@ src/defair/
 
 DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and* its MCP exposure simultaneously.
 
-### ✅ v0.1 — Core + MCP bootstrap + Evidence Manager (current)
+### ✅ v0.1 — Core + Evidence Manager
 
 - Case & Evidence models
-- CLI: `case create`, `cases list`, `case get`, `evidence add`, `evidence list`, `evidence get`, `evidence verify`
-- MCP server: `list_cases`, `create_case`, `get_case`, `register_evidence`, `list_evidence`, `get_evidence`, `verify_evidence`
+- CLI: `case create`, `cases list`, `case get`, `evidence add/list/get/verify`
+- MCP: `create_case`, `list_cases`, `get_case`, `register_evidence`, `list_evidence`, `get_evidence`, `verify_evidence`
 - SQLite database with provenance
 - SHA-256 hashing + integrity verification on evidence
 - Structured logging with correlation IDs
 - Docker + CI/CD
+
+### ✅ v0.1.5 — Host Wrapper + Container Orchestration (current)
+
+- Docker SDK integration — orchestrate forensic containers from the host
+- One container per investigation, evidence mounted read-only
+- CLI: `container create/list/get/start/stop/exec/logs/remove`
+- MCP: `create_container`, `list_containers`, `get_container_info`, `start_container`, `stop_container`, `exec_in_container`, `container_logs`, `remove_container`
+- Persistent workspaces at `~/.defair/workspaces/`
+- AI agent can create, control, and run commands in forensic containers via MCP
 
 ### 🔜 v0.2 — Windows foundation + MCP analysis
 
