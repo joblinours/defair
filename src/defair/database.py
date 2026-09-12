@@ -32,9 +32,60 @@ CREATE TABLE IF NOT EXISTS evidence (
     registered_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tool_runs (
+    id TEXT PRIMARY KEY,
+    run_number TEXT UNIQUE NOT NULL,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    evidence_id TEXT REFERENCES evidence(id),
+    tool_name TEXT NOT NULL,
+    tool_version TEXT,
+    command TEXT DEFAULT '',
+    parameters TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'pending',
+    exit_code INTEGER,
+    stdout TEXT DEFAULT '',
+    stderr TEXT DEFAULT '',
+    output_path TEXT,
+    output_files TEXT DEFAULT '[]',
+    output_hash TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    duration_seconds REAL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    artifact_number TEXT UNIQUE NOT NULL,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    evidence_id TEXT REFERENCES evidence(id),
+    run_id TEXT REFERENCES tool_runs(id),
+    artifact_type TEXT NOT NULL,
+    category TEXT DEFAULT 'other',
+    source_tool TEXT DEFAULT '',
+    source_file TEXT DEFAULT '',
+    timestamp TEXT,
+    end_timestamp TEXT,
+    hostname TEXT,
+    username TEXT,
+    description TEXT DEFAULT '',
+    data TEXT DEFAULT '{}',
+    tags TEXT DEFAULT '[]',
+    severity TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_cases_case_number ON cases(case_number);
 CREATE INDEX IF NOT EXISTS idx_evidence_case_id ON evidence(case_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_number ON evidence(evidence_number);
+CREATE INDEX IF NOT EXISTS idx_tool_runs_case_id ON tool_runs(case_id);
+CREATE INDEX IF NOT EXISTS idx_tool_runs_evidence_id ON tool_runs(evidence_id);
+CREATE INDEX IF NOT EXISTS idx_tool_runs_run_number ON tool_runs(run_number);
+CREATE INDEX IF NOT EXISTS idx_artifacts_case_id ON artifacts(case_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_run_id ON artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_category ON artifacts(category);
+CREATE INDEX IF NOT EXISTS idx_artifacts_timestamp ON artifacts(timestamp);
 """
 
 

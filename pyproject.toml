@@ -1,6 +1,6 @@
 [project]
 name = "defair"
-version = "0.1.5"
+version = "0.2.0"
 description = "DEFAIR — Digital Forensics & Incident Response platform. MCP-first, containerized, modular."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+forensic = [
+    "dissect>=3.18",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -44,3 +47,7 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py313"
 line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"src/defair/normalizers/*" = ["BLE001"]
+"src/defair/tools/base.py" = ["BLE001"]

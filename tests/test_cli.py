@@ -43,7 +43,7 @@ class TestCLIInsideContainer:
     def test_version(self):
         result = self.runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.5" in result.output
+        assert "0.2.0" in result.output
 
     def test_case_create(self):
         result = self.runner.invoke(cli, [*self.base_args, "case", "create", "Test Incident"])

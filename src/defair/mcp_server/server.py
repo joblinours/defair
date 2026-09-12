@@ -409,6 +409,545 @@ async def verify_evidence(container: str, evidence_id: str) -> str:
     return await _proxy_defair(container, ["evidence", "verify", evidence_id])
 
 
+# ---------------------------------------------------------------------------
+# MCP Tools — Discovery & Analysis (v0.2 — proxied into container)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def discover_evidence(container: str, evidence_path: str = "/evidence") -> str:
+    """Discover forensic artifacts in evidence.
+
+    Scans the evidence path inside a container to identify available
+    Windows artifacts (registry, event logs, prefetch, MFT, etc.)
+    and recommends which tools to run.
+
+    Based on SANS FOR500 artifact categories:
+    - Program Execution (Prefetch, Amcache, Shimcache, UserAssist, BAM/DAM)
+    - File Download (MRU, Browser downloads, ADS Zone.Identifier)
+    - File/Folder Opening (Shell Bags, LNK, Jump Lists, Recent Files)
+    - Deleted File Knowledge (Recycle Bin, Thumbcache)
+    - Network Activity (SRUM, WLAN logs, Network History)
+    - External Device/USB (Registry keys, PnP events)
+    - Account Usage (SAM, Event Logs, RDP)
+    - Browser Usage (History, Cookies, Downloads)
+
+    Args:
+        container: Container name.
+        evidence_path: Path to scan inside the container (default: /evidence).
+
+    Returns:
+        Discovery results with artifact types and recommended tools.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="discover_evidence", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["discover", evidence_path])
+
+
+@mcp.tool()
+async def analyze_mft(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze NTFS $MFT or $J (USN Journal) with MFTECmd.
+
+    Extracts file metadata, MACB timestamps, paths, and sizes.
+    Covers: file creation/modification/access/deletion timestamps.
+
+    Args:
+        container: Container name.
+        input_path: Path to $MFT or $J inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result with run details and artifact count.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_mft", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "mftecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_evtx(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Windows Event Logs (.evtx) with EvtxECmd.
+
+    Parses event logs with structured maps for logon events,
+    process creation, service installs, RDP, PowerShell, Sysmon, etc.
+
+    Args:
+        container: Container name.
+        input_path: Path to .evtx file or directory inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory of .evtx files.
+
+    Returns:
+        Analysis result with parsed event count.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_evtx", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "evtxecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_registry(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Windows Registry hives with RECmd.
+
+    Extracts UserAssist, MRU, ShellBags, USB devices, Run keys,
+    services, BAM/DAM, network profiles, and more.
+
+    Args:
+        container: Container name.
+        input_path: Path to registry hive(s) inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory of hive files.
+
+    Returns:
+        Analysis result with artifact count per category.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_registry", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "recmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_prefetch(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Windows Prefetch files with PECmd.
+
+    Extracts program execution history: executable name, run count,
+    last 8 run times, and referenced files/directories.
+
+    Args:
+        container: Container name.
+        input_path: Path to .pf file or Prefetch directory.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory.
+
+    Returns:
+        Analysis result with execution records.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_prefetch", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "pecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_amcache(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze Amcache.hve with AmcacheParser.
+
+    Extracts application execution records, SHA-1 hashes,
+    file metadata, and driver information.
+
+    Args:
+        container: Container name.
+        input_path: Path to Amcache.hve inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result with program entries.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_amcache", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "amcacheparser", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_shimcache(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze Shimcache / AppCompatCache with AppCompatCacheParser.
+
+    Extracts file paths, modification times, and cache positions
+    from the SYSTEM hive. Indicates OS interaction with executables.
+
+    Args:
+        container: Container name.
+        input_path: Path to SYSTEM hive inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result with cache entries.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_shimcache", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "appcompatcacheparser", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_lnk(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Windows LNK shortcut files with LECmd.
+
+    Extracts target paths, timestamps, volume serial numbers,
+    machine IDs, MAC addresses, and network share info.
+
+    Args:
+        container: Container name.
+        input_path: Path to .lnk file or directory.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory.
+
+    Returns:
+        Analysis result with shortcut details.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_lnk", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "lecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_jumplist(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Windows Jump Lists with JLECmd.
+
+    Extracts recently/frequently accessed files per application
+    from AutomaticDestinations and CustomDestinations.
+
+    Args:
+        container: Container name.
+        input_path: Path to Jump List file or directory.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory.
+
+    Returns:
+        Analysis result with jump list entries.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_jumplist", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "jlecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_recyclebin(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze Recycle Bin ($I/$R files) with RBCmd.
+
+    Extracts original filename, path, deletion timestamp,
+    file size, and user SID.
+
+    Args:
+        container: Container name.
+        input_path: Path to $I file or $Recycle.Bin directory.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory.
+
+    Returns:
+        Analysis result with deleted file records.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_recyclebin", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "rbcmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_shellbags(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze ShellBags with SBECmd.
+
+    Extracts folder browsing history, timestamps, and evidence
+    of folder access (even for deleted folders).
+
+    Args:
+        container: Container name.
+        input_path: Path to NTUSER.DAT or UsrClass.dat.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result with folder access records.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_shellbags", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "sbecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_wintimeline(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze Windows 10/11 Timeline with WxTCmd.
+
+    Extracts activity history, app usage, focus times,
+    and file access from ActivitiesCache.db.
+
+    Args:
+        container: Container name.
+        input_path: Path to ActivitiesCache.db.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result with timeline activities.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_wintimeline", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "wxtcmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_sqlite(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    directory: bool = False,
+) -> str:
+    """Analyze SQLite databases (browsers, SRUM, etc.) with SQLECmd.
+
+    Parses Chrome/Firefox/Edge history, downloads, cookies, sessions,
+    and other SQLite-based forensic artifacts.
+
+    Args:
+        container: Container name.
+        input_path: Path to SQLite database or directory.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        directory: True if input_path is a directory.
+
+    Returns:
+        Analysis result with browser/app artifacts.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_sqlite", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "sqlecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_srum(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    registry_hive: str | None = None,
+) -> str:
+    """Analyze SRUM (System Resource Usage Monitor) with SrumECmd.
+
+    Extracts per-application network usage (bytes sent/received),
+    app timelines, energy usage, and push notification data.
+
+    Args:
+        container: Container name.
+        input_path: Path to SRUDB.dat inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        registry_hive: Path to SOFTWARE hive for SID resolution.
+
+    Returns:
+        Analysis result with resource usage data.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_srum", correlation_id=cid,
+             container=container)
+
+    cmd = ["analyze", "srumecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_tools(container: str) -> str:
+    """List available forensic tools in a container.
+
+    Shows all registered tools with their availability status.
+
+    Args:
+        container: Container name.
+
+    Returns:
+        Table of tools with name, category, and availability.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_tools", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["tools", "list"])
+
+
+@mcp.tool()
+async def tools_health(container: str) -> str:
+    """Check health/availability of all forensic tools in a container.
+
+    Args:
+        container: Container name.
+
+    Returns:
+        Health status of each tool (available or missing).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="tools_health", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["tools", "health"])
+
+
+@mcp.tool()
+async def list_tool_runs(container: str, case_id: str | None = None) -> str:
+    """List analysis tool runs in a container.
+
+    Args:
+        container: Container name.
+        case_id: Optional — filter by case.
+
+    Returns:
+        Table of tool runs with status and duration.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_tool_runs", correlation_id=cid,
+             container=container)
+
+    cmd = ["runs", "list"]
+    if case_id:
+        cmd.extend(["--case", case_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_artifacts(
+    container: str,
+    case_id: str | None = None,
+    category: str | None = None,
+    artifact_type: str | None = None,
+    limit: int = 50,
+) -> str:
+    """List normalized forensic artifacts in a container.
+
+    Artifacts are normalized outputs from tools, categorized by
+    SANS FOR500 categories.
+
+    Args:
+        container: Container name.
+        case_id: Optional — filter by case.
+        category: Optional — filter by SANS category (e.g. "program_execution").
+        artifact_type: Optional — filter by artifact type (e.g. "windows.evtx").
+        limit: Max results (default 50).
+
+    Returns:
+        Table of artifacts with type, timestamp, and description.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_artifacts", correlation_id=cid,
+             container=container)
+
+    cmd = ["artifacts", "list"]
+    if case_id:
+        cmd.extend(["--case", case_id])
+    if category:
+        cmd.extend(["--category", category])
+    if artifact_type:
+        cmd.extend(["--type", artifact_type])
+    cmd.extend(["--limit", str(limit)])
+    return await _proxy_defair(container, cmd)
+
+
 def main() -> None:
     """Entry point for the DEFAIR MCP server (stdio transport)."""
     log.info("mcp_server_starting", transport="stdio")

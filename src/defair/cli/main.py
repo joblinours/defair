@@ -8,6 +8,13 @@ from defair import __version__
 from defair.cli.cases import case_group, cases_group
 from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
+from defair.cli.tools_cli import (
+    analyze_cmd,
+    artifacts_group,
+    discover_cmd,
+    runs_group,
+    tools_group,
+)
 from defair.config import load_config
 from defair.logging import configure_logging
 
@@ -60,3 +67,8 @@ cli.add_command(cases_group)
 cli.add_command(case_group)
 cli.add_command(evidence_group)
 cli.add_command(container_group)
+cli.add_command(tools_group)
+cli.add_command(runs_group)
+cli.add_command(artifacts_group)
+cli.add_command(discover_cmd)
+cli.add_command(analyze_cmd)
