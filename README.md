@@ -66,10 +66,14 @@ It is **not** "a giant Docker container with 50 forensic binaries". It is a **fo
 git clone https://github.com/joblinours/defair.git
 cd defair
 
-# Create venv and install
+# Create venv and install (dev includes pytest, ruff, etc.)
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Verify installation
+defair --version
+pytest tests/ -v
 ```
 
 ### CLI usage
