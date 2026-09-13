@@ -38,31 +38,38 @@ ENV EZTOOLS_DIR=/opt/eztools
 RUN mkdir -p ${EZTOOLS_DIR}
 
 # Download EZ Tools — net9 portable versions
+# Some zips extract with a nested subdirectory, so we flatten after extraction.
 RUN cd /tmp && \
     TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd" && \
     for tool in $TOOLS; do \
         echo "Downloading ${tool}..." && \
         wget -q "https://download.ericzimmermanstools.com/net9/${tool}.zip" -O "${tool}.zip" && \
+        mkdir -p "${EZTOOLS_DIR}/${tool}" && \
         unzip -q -o "${tool}.zip" -d "${EZTOOLS_DIR}/${tool}" && \
-        rm "${tool}.zip" ; \
+        rm "${tool}.zip" && \
+        # Flatten: if zip created a nested subdirectory, move contents up
+        if [ -d "${EZTOOLS_DIR}/${tool}/${tool}" ]; then \
+            mv "${EZTOOLS_DIR}/${tool}/${tool}"/* "${EZTOOLS_DIR}/${tool}/" 2>/dev/null; \
+            rmdir "${EZTOOLS_DIR}/${tool}/${tool}" 2>/dev/null; \
+        fi; \
     done
 
 # Create wrapper scripts so tools are on PATH
 # net9 builds may be native executables or DLL+dotnet — handle both
 RUN for tool_dir in ${EZTOOLS_DIR}/*/; do \
         tool_name=$(basename "$tool_dir"); \
-        exe=$(find "$tool_dir" -maxdepth 1 -name "${tool_name}" -type f | head -1); \
-        if [ -n "$exe" ] && [ -x "$exe" ]; then \
+        exe="${tool_dir}${tool_name}"; \
+        dll="${tool_dir}${tool_name}.dll"; \
+        if [ -f "$exe" ] && [ -x "$exe" ]; then \
             ln -sf "$exe" "/usr/local/bin/${tool_name}"; \
-        else \
-            dll=$(find "$tool_dir" -maxdepth 1 -name "${tool_name}.dll" -type f | head -1); \
-            if [ -n "$dll" ]; then \
-                echo '#!/bin/sh' > "/usr/local/bin/${tool_name}" && \
-                echo "exec dotnet \"${dll}\" \"\$@\"" >> "/usr/local/bin/${tool_name}" && \
-                chmod +x "/usr/local/bin/${tool_name}"; \
-            fi; \
+        elif [ -f "$dll" ]; then \
+            echo '#!/bin/sh' > "/usr/local/bin/${tool_name}" && \
+            echo "exec dotnet \"${dll}\" \"\$@\"" >> "/usr/local/bin/${tool_name}" && \
+            chmod +x "/usr/local/bin/${tool_name}"; \
         fi; \
-    done
+    done && \
+    echo "=== EZ Tools on PATH ===" && \
+    ls -la /usr/local/bin/*Cmd /usr/local/bin/*Parser 2>/dev/null || true
 
 # -----------------------------------------------------------------------
 # Install DEFAIR Python package + Dissect
