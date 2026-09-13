@@ -131,24 +131,28 @@ async def create_container(
             str(ws_path): {"bind": "/workspace", "mode": "rw"},
         }
 
-        # Mount evidence as read-only.
-        # Strategy: create a staging directory with symlinks to all evidence files,
-        # then mount the ENTIRE /evidence directory as :ro so nothing is writable.
+        # Mount evidence as read-only bind-mounts.
+        # Single evidence path → mounted directly at /evidence
+        # Multiple paths → mounted at /evidence/<dirname>
         evidence_list = evidence_paths or []
         if evidence_list:
-            staging_dir = ws_path / ".evidence_staging"
-            staging_dir.mkdir(parents=True, exist_ok=True)
-
             for ev_path in evidence_list:
                 ev = Path(ev_path).resolve()
                 if not ev.exists():
                     raise FileNotFoundError(f"Evidence path not found: {ev}")
-                link = staging_dir / ev.name
-                if not link.exists():
-                    link.symlink_to(ev)
 
-            # Mount the staging dir as /evidence — entirely read-only
-            volumes[str(staging_dir)] = {"bind": "/evidence", "mode": "ro"}
+            if len(evidence_list) == 1:
+                # Single path: mount directly at /evidence
+                ev = Path(evidence_list[0]).resolve()
+                volumes[str(ev)] = {"bind": "/evidence", "mode": "ro"}
+            else:
+                # Multiple paths: mount each at /evidence/<name>
+                for ev_path in evidence_list:
+                    ev = Path(ev_path).resolve()
+                    volumes[str(ev)] = {
+                        "bind": f"/evidence/{ev.name}",
+                        "mode": "ro",
+                    }
 
         # Labels for identification
         labels = {
