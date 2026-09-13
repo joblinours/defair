@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     unzip \
     curl \
+    libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------
