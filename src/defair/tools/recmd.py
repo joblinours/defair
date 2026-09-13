@@ -88,6 +88,11 @@ class RECmdTool(BaseTool):
 
         cmd.extend(["--csv", output_dir])
 
+        # Skip transaction log replay — evidence is read-only and log file
+        # names often have different casing on Linux (ntuser.dat.LOG1 vs NTUSER.DAT)
+        if kwargs.get("no_logs", True):
+            cmd.append("--nl")
+
         # Batch file for structured extraction
         if kwargs.get("batch_file"):
             cmd.extend(["--bn", kwargs["batch_file"]])
