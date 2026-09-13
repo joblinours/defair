@@ -513,6 +513,7 @@ async def analyze_registry(
     container: str, input_path: str, case_id: str,
     evidence_id: str | None = None,
     directory: bool = False,
+    with_logs: bool = False,
 ) -> str:
     """Analyze Windows Registry hives with RECmd.
 
@@ -523,8 +524,11 @@ async def analyze_registry(
         container: Container name.
         input_path: Path to registry hive(s) inside the container.
         case_id: Case number.
-        evidence_id: Optional evidence ID.
+        evidence_id: Optional evidence ID (EVD-NNN or UUID).
         directory: True if input_path is a directory of hive files.
+        with_logs: Replay transaction logs (.LOG1/.LOG2) for dirty hives.
+                   Default False (skips logs to avoid Linux casing issues).
+                   Set True when the hive is dirty and you need complete data.
 
     Returns:
         Analysis result with artifact count per category.
@@ -538,6 +542,8 @@ async def analyze_registry(
         cmd.extend(["--evidence", evidence_id])
     if directory:
         cmd.append("--directory")
+    if with_logs:
+        cmd.append("--with-logs")
     return await _proxy_defair(container, cmd)
 
 
@@ -735,6 +741,7 @@ async def analyze_recyclebin(
 async def analyze_shellbags(
     container: str, input_path: str, case_id: str,
     evidence_id: str | None = None,
+    with_logs: bool = False,
 ) -> str:
     """Analyze ShellBags with SBECmd.
 
@@ -745,7 +752,11 @@ async def analyze_shellbags(
         container: Container name.
         input_path: Path to NTUSER.DAT or UsrClass.dat.
         case_id: Case number.
-        evidence_id: Optional evidence ID.
+        evidence_id: Optional evidence ID (EVD-NNN or UUID).
+        with_logs: Replay transaction logs (.LOG1/.LOG2) for dirty hives.
+                   Default False (skips logs to avoid Linux casing issues).
+                   Set True when the hive is dirty and you need complete data
+                   (e.g. 14 shellbags without logs vs 18 with logs).
 
     Returns:
         Analysis result with folder access records.
@@ -757,6 +768,8 @@ async def analyze_shellbags(
     cmd = ["analyze", "sbecmd", input_path, "--case", case_id]
     if evidence_id:
         cmd.extend(["--evidence", evidence_id])
+    if with_logs:
+        cmd.append("--with-logs")
     return await _proxy_defair(container, cmd)
 
 

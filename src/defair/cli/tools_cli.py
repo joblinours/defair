@@ -198,6 +198,10 @@ def discover_cmd(ctx: click.Context, evidence_path: str, no_recursive: bool) -> 
 @click.option("--output", "output_dir", default="/workspace/analysis", help="Output directory.")
 @click.option("--directory", is_flag=True, help="Input is a directory.")
 @click.option("--normalize", is_flag=True, default=True, help="Normalize outputs to artifacts.")
+@click.option(
+    "--no-logs/--with-logs", "no_logs", default=True,
+    help="Skip transaction log replay (--nl). Default: skip. Use --with-logs on dirty hives for complete data.",
+)
 @click.pass_context
 def analyze_cmd(
     ctx: click.Context,
@@ -208,13 +212,14 @@ def analyze_cmd(
     output_dir: str,
     directory: bool,
     normalize: bool,
+    no_logs: bool,
 ) -> None:
     """Run a forensic tool against evidence.
 
     Examples:
       defair analyze mftecmd /evidence/$MFT --case CASE-2026-001
       defair analyze evtxecmd /evidence/logs/ --case CASE-2026-001 --directory
-      defair analyze pecmd /evidence/Prefetch/ --case CASE-2026-001 --directory
+      defair analyze recmd /evidence/NTUSER.DAT --case CASE-2026-001 --with-logs
     """
     container = get_container_or_fail(ctx)
     if container:
@@ -225,10 +230,13 @@ def analyze_cmd(
             cmd.extend(["--output", output_dir])
         if directory:
             cmd.append("--directory")
+        if not no_logs:
+            cmd.append("--with-logs")
         return proxy_command(container, cmd)
 
     from defair.services import analysis_service
     from defair.services.case_service import get_case
+    from defair.services.evidence_service import get_evidence as get_ev
 
     async def _run() -> None:
         db_path = ctx.obj["db_path"]
@@ -243,21 +251,32 @@ def analyze_cmd(
                 return
             resolved_case_id = case.id
 
+            # Resolve evidence_number (EVD-NNN) to evidence UUID
+            resolved_evidence_id = evidence_id
+            if evidence_id:
+                ev = await get_ev(conn, evidence_id)
+                if ev is None:
+                    console.print(f"[red]✗[/red] Evidence not found: {evidence_id}")
+                    ctx.exit(1)
+                    return
+                resolved_evidence_id = ev.id
+
             kwargs = {}
             if directory:
                 kwargs["directory"] = True
+            kwargs["no_logs"] = no_logs
 
             if normalize:
                 result = await analysis_service.run_tool_and_normalize(
                     conn, tool_name, input_path, resolved_case_id,
-                    evidence_id=evidence_id,
+                    evidence_id=resolved_evidence_id,
                     output_base=output_dir,
                     **kwargs,
                 )
             else:
                 tool_run = await analysis_service.run_tool(
                     conn, tool_name, input_path, resolved_case_id,
-                    evidence_id=evidence_id,
+                    evidence_id=resolved_evidence_id,
                     output_base=output_dir,
                     **kwargs,
                 )
