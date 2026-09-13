@@ -19,11 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------
-# Install .NET runtime (required for EZ Tools)
+# Install .NET 9.0 runtime (required for EZ Tools net9 builds)
 # -----------------------------------------------------------------------
 RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 8.0 --runtime dotnet --install-dir /usr/share/dotnet \
+    && /tmp/dotnet-install.sh --channel 9.0 --runtime dotnet --install-dir /usr/share/dotnet \
     && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
     && rm /tmp/dotnet-install.sh
 
@@ -32,18 +32,17 @@ ENV PATH="${PATH}:/usr/share/dotnet"
 
 # -----------------------------------------------------------------------
 # Install EZ Tools (Eric Zimmerman's forensic tools)
-# Uses the official net6 release ZIP packages
+# Uses the official net9 builds from ericzimmermanstools.com
 # -----------------------------------------------------------------------
 ENV EZTOOLS_DIR=/opt/eztools
 RUN mkdir -p ${EZTOOLS_DIR}
 
-# Download EZ Tools — using the net6 portable versions
-# These are self-contained .NET 6+ executables
+# Download EZ Tools — net9 portable versions
 RUN cd /tmp && \
     TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd" && \
     for tool in $TOOLS; do \
         echo "Downloading ${tool}..." && \
-        wget -q "https://f001.backblazeb2.com/file/EricZimmermanTools/net6/${tool}.zip" -O "${tool}.zip" && \
+        wget -q "https://download.ericzimmermanstools.com/net9/${tool}.zip" -O "${tool}.zip" && \
         unzip -q -o "${tool}.zip" -d "${EZTOOLS_DIR}/${tool}" && \
         rm "${tool}.zip" ; \
     done
