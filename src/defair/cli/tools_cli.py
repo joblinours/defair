@@ -228,25 +228,35 @@ def analyze_cmd(
         return proxy_command(container, cmd)
 
     from defair.services import analysis_service
+    from defair.services.case_service import get_case
 
     async def _run() -> None:
         db_path = ctx.obj["db_path"]
         conn = await get_initialized_connection(db_path)
         try:
+            # Resolve case_number (CASE-YYYY-NNN) to case UUID
+            resolved_case_id = case_id
+            case = await get_case(conn, case_id)
+            if case is None:
+                console.print(f"[red]✗[/red] Case not found: {case_id}")
+                ctx.exit(1)
+                return
+            resolved_case_id = case.id
+
             kwargs = {}
             if directory:
                 kwargs["directory"] = True
 
             if normalize:
                 result = await analysis_service.run_tool_and_normalize(
-                    conn, tool_name, input_path, case_id,
+                    conn, tool_name, input_path, resolved_case_id,
                     evidence_id=evidence_id,
                     output_base=output_dir,
                     **kwargs,
                 )
             else:
                 tool_run = await analysis_service.run_tool(
-                    conn, tool_name, input_path, case_id,
+                    conn, tool_name, input_path, resolved_case_id,
                     evidence_id=evidence_id,
                     output_base=output_dir,
                     **kwargs,

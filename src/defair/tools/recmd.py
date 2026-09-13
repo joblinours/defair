@@ -92,9 +92,35 @@ class RECmdTool(BaseTool):
         if kwargs.get("batch_file"):
             cmd.extend(["--bn", kwargs["batch_file"]])
         elif kwargs.get("use_default_batch", True):
-            cmd.extend(["--bn", "/opt/eztools/BatchExamples/RECmd_Batch_MC.reb"])
+            batch = self._find_batch_file()
+            if batch:
+                cmd.extend(["--bn", batch])
 
         if kwargs.get("json_output"):
             cmd.extend(["--json", output_dir])
 
         return cmd
+
+    @staticmethod
+    def _find_batch_file() -> str | None:
+        """Locate the RECmd batch file in the EZ Tools directory."""
+        from pathlib import Path
+
+        # Search common locations for the batch file
+        candidates = [
+            "/opt/eztools/RECmd/BatchExamples/RECmd_Batch_MC.reb",
+            "/opt/eztools/RECmd/RECmd/BatchExamples/RECmd_Batch_MC.reb",
+            "/opt/eztools/BatchExamples/RECmd_Batch_MC.reb",
+        ]
+        for path in candidates:
+            if Path(path).exists():
+                return path
+
+        # Fallback: search recursively
+        eztools = Path("/opt/eztools")
+        if eztools.exists():
+            found = list(eztools.rglob("RECmd_Batch_MC.reb"))
+            if found:
+                return str(found[0])
+
+        return None
