@@ -43,10 +43,20 @@ class SBECmdTool(BaseTool):
     def build_command(self, input_path: str, output_dir: str, **kwargs) -> list[str]:
         cmd = ["SBECmd"]
 
-        if kwargs.get("directory"):
-            cmd.extend(["-d", input_path])
+        # SBECmd only supports -d (directory), not -f (single file).
+        # When given a file, use its parent directory.
+        from pathlib import Path
+
+        input_p = Path(input_path)
+        if input_p.is_file() or not kwargs.get("directory"):
+            cmd.extend(["-d", str(input_p.parent)])
         else:
-            cmd.extend(["-f", input_path])
+            cmd.extend(["-d", input_path])
 
         cmd.extend(["--csv", output_dir])
+
+        # Skip transaction log replay (same Linux casing issue as RECmd)
+        if kwargs.get("no_logs", True):
+            cmd.append("--nl")
+
         return cmd
