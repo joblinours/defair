@@ -31,3 +31,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Evidences test
+evidence/*

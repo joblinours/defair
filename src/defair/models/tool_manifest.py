@@ -19,6 +19,7 @@ class ToolCategory(StrEnum):
     MEMORY = "memory"
     PERSISTENCE = "persistence"
     TIMELINE = "timeline"
+    DETECTION = "detection"
     DISCOVERY = "discovery"
     GENERAL = "general"
 

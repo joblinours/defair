@@ -961,6 +961,189 @@ async def list_artifacts(
     return await _proxy_defair(container, cmd)
 
 
+# ---------------------------------------------------------------------------
+# MCP Tools — v0.3: Hunting, Timeline, Findings, Search
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def hunt_evtx(
+    container: str,
+    input_path: str,
+    case_id: str,
+    evidence_id: str | None = None,
+    profile: str = "standard",
+) -> str:
+    """Hunt for threats in Windows Event Logs using Hayabusa + Sigma rules.
+
+    Runs Hayabusa threat detection against EVTX files, applying 4000+
+    Sigma detection rules with MITRE ATT&CK mapping. Automatically
+    creates findings from high/critical detections.
+
+    Complementary to analyze_evtx: analyze_evtx *parses* events,
+    hunt_evtx *detects* threats.
+
+    Args:
+        container: Container name.
+        input_path: Path to EVTX directory inside the container (e.g. "/evidence").
+        case_id: Case number (e.g. "CASE-2026-001").
+        evidence_id: Optional evidence ID (EVD-NNN or UUID).
+        profile: Hayabusa output profile — minimal, standard, verbose,
+                 all-field-info, super-verbose (default: standard).
+
+    Returns:
+        Hunt results with detection count, severity breakdown, and auto-created findings.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="hunt_evtx", correlation_id=cid,
+             container=container)
+
+    cmd = ["hunt", input_path, "--case", case_id, "--profile", profile]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def build_timeline(container: str, case_id: str) -> str:
+    """Build a timeline summary for a forensic case.
+
+    Aggregates all artifacts with timestamps and shows:
+    - Total event count
+    - Time range (earliest → latest)
+    - Breakdown by tool, category, and severity
+
+    Args:
+        container: Container name.
+        case_id: Case number (e.g. "CASE-2026-001").
+
+    Returns:
+        Timeline summary with statistics.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="build_timeline", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["timeline", "summary", "--case", case_id])
+
+
+@mcp.tool()
+async def search_timeline(
+    container: str,
+    case_id: str,
+    query: str | None = None,
+    from_time: str | None = None,
+    to_time: str | None = None,
+    hostname: str | None = None,
+    username: str | None = None,
+    category: str | None = None,
+    severity: str | None = None,
+    source_tool: str | None = None,
+    limit: int = 50,
+) -> str:
+    """Search the forensic timeline with filters.
+
+    Query across all artifacts ordered by timestamp. Supports
+    text search and filtering by time range, host, user, category,
+    severity, and source tool.
+
+    Args:
+        container: Container name.
+        case_id: Case number (e.g. "CASE-2026-001").
+        query: Text to search in description/data (e.g. "powershell", "4624").
+        from_time: Start time filter (ISO 8601, e.g. "2023-03-27").
+        to_time: End time filter (ISO 8601).
+        hostname: Filter by hostname.
+        username: Filter by username.
+        category: Filter by SANS category (e.g. "account_usage").
+        severity: Filter by severity (critical, high, medium, low, informational).
+        source_tool: Filter by tool (e.g. "hayabusa", "evtxecmd").
+        limit: Max results (default 50).
+
+    Returns:
+        Timeline events matching the filters, ordered chronologically.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="search_timeline", correlation_id=cid,
+             container=container)
+
+    cmd = ["timeline", "search", "--case", case_id, "--limit", str(limit)]
+    if query:
+        cmd.extend(["--query", query])
+    if from_time:
+        cmd.extend(["--from", from_time])
+    if to_time:
+        cmd.extend(["--to", to_time])
+    if hostname:
+        cmd.extend(["--hostname", hostname])
+    if username:
+        cmd.extend(["--username", username])
+    if category:
+        cmd.extend(["--category", category])
+    if severity:
+        cmd.extend(["--severity", severity])
+    if source_tool:
+        cmd.extend(["--tool", source_tool])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_findings(
+    container: str,
+    case_id: str,
+    severity: str | None = None,
+    status: str | None = None,
+) -> str:
+    """List investigation findings for a case.
+
+    Findings are conclusions from threat hunting — they group
+    related detections into actionable items with MITRE ATT&CK mapping.
+
+    Args:
+        container: Container name.
+        case_id: Case number (e.g. "CASE-2026-001").
+        severity: Filter by severity (critical, high, medium, low, informational).
+        status: Filter by status (open, confirmed, false_positive, resolved).
+
+    Returns:
+        Table of findings with severity, title, and linked artifact count.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_findings", correlation_id=cid,
+             container=container)
+
+    cmd = ["findings", "list", "--case", case_id]
+    if severity:
+        cmd.extend(["--severity", severity])
+    if status:
+        cmd.extend(["--status", status])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def search_ioc(container: str, case_id: str, value: str) -> str:
+    """Search for an IOC (Indicator of Compromise) across all artifacts.
+
+    Searches for a value (IP, hash, domain, filename, command, etc.)
+    in artifact descriptions, data fields, hostnames, usernames,
+    and source files.
+
+    Args:
+        container: Container name.
+        case_id: Case number (e.g. "CASE-2026-001").
+        value: IOC to search for (e.g. "192.168.1.100", "SharpHound",
+               "Metasploit", "powershell.exe").
+
+    Returns:
+        Search results with matching artifacts and tools.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="search_ioc", correlation_id=cid,
+             container=container)
+
+    return await _proxy_defair(container, ["search", value, "--case", case_id])
+
+
 def main() -> None:
     """Entry point for the DEFAIR MCP server (stdio transport)."""
     log.info("mcp_server_starting", transport="stdio")

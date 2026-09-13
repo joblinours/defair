@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-LABEL maintainer="lucas.joblin@gmail.com"
+LABEL maintainer="joblinours"
 LABEL description="DEFAIR — Digital Forensics & Incident Response platform"
 
 # Prevent Python from writing .pyc and enable unbuffered output
@@ -72,6 +72,23 @@ RUN for tool_dir in ${EZTOOLS_DIR}/*/; do \
             fi; \
         fi; \
     done
+
+# -----------------------------------------------------------------------
+# Install Hayabusa (Sigma-based EVTX threat hunting)
+# -----------------------------------------------------------------------
+ARG HAYABUSA_VERSION=2.18.0
+RUN cd /tmp && \
+    wget -q "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-linux-x64-gnu.zip" \
+        -O hayabusa.zip && \
+    unzip -q hayabusa.zip -d hayabusa && \
+    # Find the binary (may be nested in a subdirectory)
+    find hayabusa -name "hayabusa*" -type f -executable -exec cp {} /usr/local/bin/hayabusa \; && \
+    chmod +x /usr/local/bin/hayabusa && \
+    # Copy bundled Sigma rules
+    mkdir -p /opt/hayabusa && \
+    find hayabusa -type d -name "rules" -exec cp -r {} /opt/hayabusa/ \; && \
+    rm -rf hayabusa hayabusa.zip && \
+    echo "  ✓ Hayabusa ${HAYABUSA_VERSION} installed"
 
 # -----------------------------------------------------------------------
 # Install DEFAIR Python package + Dissect

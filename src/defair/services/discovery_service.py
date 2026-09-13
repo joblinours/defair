@@ -141,6 +141,14 @@ async def discover_artifacts(
                 "file_count": info["count"],
                 "description": info["description"],
             })
+            # Dual recommendation: EVTX files → parse (evtxecmd) + detect (hayabusa)
+            if art_type == "evtx":
+                recommended_tools.append({
+                    "tool": "hayabusa",
+                    "artifact_type": art_type,
+                    "file_count": info["count"],
+                    "description": "Sigma-based threat detection (hunt_evtx)",
+                })
 
     result = {
         "platform": platform,

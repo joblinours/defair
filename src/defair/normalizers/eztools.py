@@ -574,6 +574,11 @@ NORMALIZER_MAP: dict[str, type[BaseNormalizer]] = {
     "srumecmd": SrumECmdNormalizer,
 }
 
+# Register Hayabusa normalizer (detection tool, separate module)
+from defair.normalizers.hayabusa import HayabusaNormalizer
+
+NORMALIZER_MAP["hayabusa"] = HayabusaNormalizer
+
 
 def get_normalizer(tool_name: str) -> BaseNormalizer | None:
     """Get a normalizer instance for a tool."""

@@ -8,6 +8,10 @@ from defair import __version__
 from defair.cli.cases import case_group, cases_group
 from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
+from defair.cli.findings import findings_group
+from defair.cli.hunt import hunt_cmd
+from defair.cli.search import search_cmd
+from defair.cli.timeline import timeline_group
 from defair.cli.tools_cli import (
     analyze_cmd,
     artifacts_group,
@@ -72,3 +76,7 @@ cli.add_command(runs_group)
 cli.add_command(artifacts_group)
 cli.add_command(discover_cmd)
 cli.add_command(analyze_cmd)
+cli.add_command(hunt_cmd)
+cli.add_command(timeline_group)
+cli.add_command(findings_group)
+cli.add_command(search_cmd)

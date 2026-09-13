@@ -98,6 +98,7 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.appcompat_parser import AppCompatCacheParserTool
     from defair.tools.dissect_tool import DissectTool
     from defair.tools.evtxecmd import EvtxECmdTool
+    from defair.tools.hayabusa import HayabusaTool
     from defair.tools.jlecmd import JLECmdTool
     from defair.tools.lecmd import LECmdTool
     from defair.tools.mftecmd import MFTECmdTool
@@ -114,6 +115,7 @@ def get_default_registry() -> ToolRegistry:
         DissectTool,
         MFTECmdTool,
         EvtxECmdTool,
+        HayabusaTool,
         RECmdTool,
         PECmdTool,
         AmcacheParserTool,

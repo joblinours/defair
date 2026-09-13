@@ -75,6 +75,24 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS findings (
+    id TEXT PRIMARY KEY,
+    finding_number TEXT UNIQUE NOT NULL,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    severity TEXT DEFAULT 'medium',
+    confidence TEXT DEFAULT 'medium',
+    status TEXT DEFAULT 'open',
+    source TEXT DEFAULT '',
+    mitre_tactics TEXT DEFAULT '[]',
+    mitre_techniques TEXT DEFAULT '[]',
+    artifact_ids TEXT DEFAULT '[]',
+    detection_refs TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_cases_case_number ON cases(case_number);
 CREATE INDEX IF NOT EXISTS idx_evidence_case_id ON evidence(case_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_number ON evidence(evidence_number);
@@ -86,6 +104,14 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_run_id ON artifacts(run_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
 CREATE INDEX IF NOT EXISTS idx_artifacts_category ON artifacts(category);
 CREATE INDEX IF NOT EXISTS idx_artifacts_timestamp ON artifacts(timestamp);
+CREATE INDEX IF NOT EXISTS idx_artifacts_hostname ON artifacts(hostname);
+CREATE INDEX IF NOT EXISTS idx_artifacts_username ON artifacts(username);
+CREATE INDEX IF NOT EXISTS idx_artifacts_severity ON artifacts(severity);
+CREATE INDEX IF NOT EXISTS idx_artifacts_source_tool ON artifacts(source_tool);
+CREATE INDEX IF NOT EXISTS idx_findings_case_id ON findings(case_id);
+CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status);
+CREATE INDEX IF NOT EXISTS idx_findings_finding_number ON findings(finding_number);
 """
 
 
