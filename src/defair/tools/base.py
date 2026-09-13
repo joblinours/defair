@@ -136,8 +136,15 @@ class BaseTool(ABC):
             command=command_str,
         )
 
-        # Ensure output directory exists
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        # Ensure output directory exists and is clean (avoids duplicates
+        # when the workspace volume persists across container recreations
+        # but the DB is fresh → same RUN-NNN directory reused with stale files)
+        out = Path(output_dir)
+        if out.exists():
+            import shutil as _shutil
+
+            _shutil.rmtree(out)
+        out.mkdir(parents=True, exist_ok=True)
 
         # Execute
         start = time.monotonic()

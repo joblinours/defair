@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 class StorageConfig(BaseModel):
     """Paths for DEFAIR data storage."""
 
-    database: Path = Path("~/.defair/defair.db")
+    database: Path = Path(os.environ.get("DEFAIR_DB_PATH", "~/.defair/defair.db"))
     evidence: Path = Path("/evidence")
     cases: Path = Path("~/.defair/cases")
 
