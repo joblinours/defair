@@ -38,7 +38,6 @@ ENV EZTOOLS_DIR=/opt/eztools
 RUN mkdir -p ${EZTOOLS_DIR}
 
 # Download EZ Tools — net9 portable versions
-# Some zips extract with a nested subdirectory, so we flatten after extraction.
 RUN cd /tmp && \
     TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd" && \
     for tool in $TOOLS; do \
@@ -46,30 +45,31 @@ RUN cd /tmp && \
         wget -q "https://download.ericzimmermanstools.com/net9/${tool}.zip" -O "${tool}.zip" && \
         mkdir -p "${EZTOOLS_DIR}/${tool}" && \
         unzip -q -o "${tool}.zip" -d "${EZTOOLS_DIR}/${tool}" && \
-        rm "${tool}.zip" && \
-        # Flatten: if zip created a nested subdirectory, move contents up
-        if [ -d "${EZTOOLS_DIR}/${tool}/${tool}" ]; then \
-            mv "${EZTOOLS_DIR}/${tool}/${tool}"/* "${EZTOOLS_DIR}/${tool}/" 2>/dev/null; \
-            rmdir "${EZTOOLS_DIR}/${tool}/${tool}" 2>/dev/null; \
-        fi; \
+        rm "${tool}.zip"; \
     done
 
 # Create wrapper scripts so tools are on PATH
-# net9 builds may be native executables or DLL+dotnet — handle both
+# Zips may nest with different casing (e.g. EvtxECmd/EvtxeCmd/) so we
+# search recursively and case-insensitively for the executable or DLL.
 RUN for tool_dir in ${EZTOOLS_DIR}/*/; do \
         tool_name=$(basename "$tool_dir"); \
-        exe="${tool_dir}${tool_name}"; \
-        dll="${tool_dir}${tool_name}.dll"; \
-        if [ -f "$exe" ] && [ -x "$exe" ]; then \
+        # 1) Try native Linux executable (exact name, no extension)
+        exe=$(find "$tool_dir" -name "${tool_name}" -type f -executable 2>/dev/null | head -1); \
+        if [ -n "$exe" ]; then \
             ln -sf "$exe" "/usr/local/bin/${tool_name}"; \
-        elif [ -f "$dll" ]; then \
-            echo '#!/bin/sh' > "/usr/local/bin/${tool_name}" && \
-            echo "exec dotnet \"${dll}\" \"\$@\"" >> "/usr/local/bin/${tool_name}" && \
-            chmod +x "/usr/local/bin/${tool_name}"; \
+            echo "  ✓ ${tool_name} → native ($exe)"; \
+        else \
+            # 2) Try .NET DLL (case-insensitive search for nested dirs)
+            dll=$(find "$tool_dir" -iname "${tool_name}.dll" -type f 2>/dev/null | head -1); \
+            if [ -n "$dll" ]; then \
+                printf '#!/bin/sh\nexec dotnet "%s" "$@"\n' "$dll" > "/usr/local/bin/${tool_name}" && \
+                chmod +x "/usr/local/bin/${tool_name}"; \
+                echo "  ✓ ${tool_name} → dotnet ($dll)"; \
+            else \
+                echo "  ✗ ${tool_name} — no executable or DLL found"; \
+            fi; \
         fi; \
-    done && \
-    echo "=== EZ Tools on PATH ===" && \
-    ls -la /usr/local/bin/*Cmd /usr/local/bin/*Parser 2>/dev/null || true
+    done
 
 # -----------------------------------------------------------------------
 # Install DEFAIR Python package + Dissect
