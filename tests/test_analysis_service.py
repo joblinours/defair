@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from defair.database import get_initialized_connection
 from defair.services import analysis_service
 
 

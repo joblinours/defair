@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from defair.tools.registry import ToolRegistry, get_default_registry
 
 

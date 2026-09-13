@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from defair.services.discovery_service import discover_artifacts, _identify_file, _matches_pattern
+from defair.services.discovery_service import _identify_file, _matches_pattern, discover_artifacts
 
 
 class TestPatternMatching:
