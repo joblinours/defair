@@ -48,14 +48,19 @@ RUN cd /tmp && \
     done
 
 # Create wrapper scripts so tools are on PATH
+# net9 builds may be native executables or DLL+dotnet — handle both
 RUN for tool_dir in ${EZTOOLS_DIR}/*/; do \
         tool_name=$(basename "$tool_dir"); \
-        # Find the main DLL
-        dll=$(find "$tool_dir" -maxdepth 1 -name "*.dll" -not -name "*.resources.dll" | head -1); \
-        if [ -n "$dll" ]; then \
-            echo '#!/bin/sh' > "/usr/local/bin/${tool_name}" && \
-            echo "exec dotnet \"${dll}\" \"\$@\"" >> "/usr/local/bin/${tool_name}" && \
-            chmod +x "/usr/local/bin/${tool_name}"; \
+        exe=$(find "$tool_dir" -maxdepth 1 -name "${tool_name}" -type f | head -1); \
+        if [ -n "$exe" ] && [ -x "$exe" ]; then \
+            ln -sf "$exe" "/usr/local/bin/${tool_name}"; \
+        else \
+            dll=$(find "$tool_dir" -maxdepth 1 -name "${tool_name}.dll" -type f | head -1); \
+            if [ -n "$dll" ]; then \
+                echo '#!/bin/sh' > "/usr/local/bin/${tool_name}" && \
+                echo "exec dotnet \"${dll}\" \"\$@\"" >> "/usr/local/bin/${tool_name}" && \
+                chmod +x "/usr/local/bin/${tool_name}"; \
+            fi; \
         fi; \
     done
 
