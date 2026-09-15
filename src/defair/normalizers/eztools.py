@@ -134,18 +134,18 @@ class EvtxECmdNormalizer(BaseNormalizer):
         return ArtifactCategory.OTHER
 
 
-class PECmdNormalizer(BaseNormalizer):
-    """Normalize PECmd CSV output."""
+class PrefetchNormalizer(BaseNormalizer):
+    """Normalize Prefetch parser CSV output (PECmd or windowsprefetch)."""
 
     @property
     def tool_name(self) -> str:
-        return "pecmd"
+        return "prefetch"
 
     def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
         return {
             "artifact_type": "windows.prefetch.execution",
             "category": ArtifactCategory.PROGRAM_EXECUTION,
-            "source_tool": "pecmd",
+            "source_tool": "prefetch",
             "source_file": row.get("SourceFilename", ""),
             "timestamp": parse_timestamp(row.get("LastRun")),
             "description": f"Prefetch: {row.get('ExecutableName', '')}",
@@ -561,7 +561,7 @@ class SrumECmdNormalizer(BaseNormalizer):
 NORMALIZER_MAP: dict[str, type[BaseNormalizer]] = {
     "mftecmd": MFTECmdNormalizer,
     "evtxecmd": EvtxECmdNormalizer,
-    "pecmd": PECmdNormalizer,
+    "prefetch": PrefetchNormalizer,
     "recmd": RECmdNormalizer,
     "amcacheparser": AmcacheNormalizer,
     "appcompatcacheparser": AppCompatNormalizer,

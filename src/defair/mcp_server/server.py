@@ -553,7 +553,7 @@ async def analyze_prefetch(
     evidence_id: str | None = None,
     directory: bool = False,
 ) -> str:
-    """Analyze Windows Prefetch files with PECmd.
+    """Analyze Windows Prefetch files (cross-platform, no Windows API needed).
 
     Extracts program execution history: executable name, run count,
     last 8 run times, and referenced files/directories.
@@ -572,7 +572,7 @@ async def analyze_prefetch(
     log.info("mcp_tool_called", tool="analyze_prefetch", correlation_id=cid,
              container=container)
 
-    cmd = ["analyze", "pecmd", input_path, "--case", case_id]
+    cmd = ["analyze", "prefetch", input_path, "--case", case_id]
     if evidence_id:
         cmd.extend(["--evidence", evidence_id])
     if directory:

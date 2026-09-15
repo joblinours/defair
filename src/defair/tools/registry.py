@@ -102,7 +102,7 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.jlecmd import JLECmdTool
     from defair.tools.lecmd import LECmdTool
     from defair.tools.mftecmd import MFTECmdTool
-    from defair.tools.pecmd import PECmdTool
+    from defair.tools.prefetch import PrefetchTool
     from defair.tools.rbcmd import RBCmdTool
     from defair.tools.recmd import RECmdTool
     from defair.tools.sbecmd import SBECmdTool
@@ -117,7 +117,7 @@ def get_default_registry() -> ToolRegistry:
         EvtxECmdTool,
         HayabusaTool,
         RECmdTool,
-        PECmdTool,
+        PrefetchTool,
         AmcacheParserTool,
         AppCompatCacheParserTool,
         LECmdTool,

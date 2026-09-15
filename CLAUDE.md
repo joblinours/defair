@@ -73,6 +73,7 @@ defair-mcp
 - `src/defair/models/` — Pydantic data models
 - `src/defair/models/finding.py` — Finding model (v0.3)
 - `src/defair/tools/hayabusa.py` — Hayabusa tool wrapper (v0.3)
+- `src/defair/tools/prefetch.py` — Cross-platform Prefetch parser (v0.3.1, replaces PECmd)
 - `src/defair/normalizers/hayabusa.py` — Hayabusa normalizer (v0.3)
 - `src/defair/database.py` — SQLite schema and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation

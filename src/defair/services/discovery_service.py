@@ -44,7 +44,7 @@ WINDOWS_ARTIFACTS = {
     "UsrClass.dat": {"type": "registry", "tool": "recmd", "description": "UsrClass.dat (ShellBags, file associations)"},
 
     # Prefetch
-    "*.pf": {"type": "prefetch", "tool": "pecmd", "description": "Prefetch files (program execution)"},
+    "*.pf": {"type": "prefetch", "tool": "prefetch", "description": "Prefetch files (program execution)"},
 
     # Amcache
     "Amcache.hve": {"type": "amcache", "tool": "amcacheparser", "description": "Amcache (program execution, SHA-1)"},

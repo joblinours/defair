@@ -26,7 +26,7 @@ async def case_with_artifacts(db_conn):
         ("ART-001", "2023-03-27T14:00:00Z", "windows.evtx.logon", "account_usage", "evtxecmd", "User logon", None),
         ("ART-002", "2023-03-27T14:30:00Z", "windows.evtx.process_creation", "program_execution", "evtxecmd", "Process: cmd.exe", None),
         ("ART-003", "2023-03-27T14:45:00Z", "windows.hayabusa.alert", "persistence", "hayabusa", "Mimikatz Detected", "critical"),
-        ("ART-004", "2023-03-27T15:00:00Z", "windows.prefetch.execution", "program_execution", "pecmd", "Prefetch: powershell.exe", None),
+        ("ART-004", "2023-03-27T15:00:00Z", "windows.prefetch.execution", "program_execution", "prefetch", "Prefetch: powershell.exe", None),
         ("ART-005", None, "windows.registry.generic", "other", "recmd", "Registry key", None),
     ]
 

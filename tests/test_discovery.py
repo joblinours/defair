@@ -102,7 +102,7 @@ class TestDiscoverArtifacts:
         result = await discover_artifacts(str(tmp_path))
         tools = [r["tool"] for r in result["recommended_tools"]]
         assert "evtxecmd" in tools
-        assert "pecmd" in tools
+        assert "prefetch" in tools
 
     @pytest.mark.asyncio
     async def test_discover_nonexistent_path(self):

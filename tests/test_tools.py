@@ -42,7 +42,7 @@ class TestToolRegistry:
     def test_list_by_sans_category(self):
         registry = get_default_registry()
         exec_tools = registry.list_by_sans_category("program_execution")
-        assert len(exec_tools) >= 4  # PECmd, AmcacheParser, AppCompat, RECmd, etc.
+        assert len(exec_tools) >= 4  # Prefetch, AmcacheParser, AppCompat, RECmd, etc.
 
     def test_health_check(self):
         registry = get_default_registry()
@@ -81,11 +81,12 @@ class TestToolManifests:
         assert len(m.sans_categories) >= 6
         assert "registry" == m.category
 
-    def test_pecmd_covers_execution(self):
+    def test_prefetch_covers_execution(self):
         registry = get_default_registry()
-        m = registry.get("pecmd").manifest()
+        m = registry.get("prefetch").manifest()
         assert "prefetch" in m.capabilities
         assert "program_execution" in m.sans_categories
+        assert m.runtime == "python"
 
     def test_rbcmd_covers_deleted_files(self):
         registry = get_default_registry()
@@ -136,9 +137,8 @@ class TestToolBuildCommand:
         assert "-d" in cmd
         assert "/evidence/logs" in cmd
 
-    def test_pecmd_single_file(self):
+    def test_prefetch_is_available(self):
         registry = get_default_registry()
-        tool = registry.get("pecmd")
-        cmd = tool.build_command("/evidence/CALC.EXE-1234.pf", "/output")
-        assert cmd[0] == "PECmd"
-        assert "-f" in cmd
+        tool = registry.get("prefetch")
+        # PrefetchTool is always available (pure Python)
+        assert tool.is_available() is True

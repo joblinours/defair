@@ -8,7 +8,7 @@ from defair.normalizers.eztools import (
     EvtxECmdNormalizer,
     LECmdNormalizer,
     MFTECmdNormalizer,
-    PECmdNormalizer,
+    PrefetchNormalizer,
     RBCmdNormalizer,
     RECmdNormalizer,
     SBECmdNormalizer,
@@ -27,7 +27,7 @@ class TestNormalizerRegistry:
 
     def test_all_tools_have_normalizers(self):
         tools = [
-            "mftecmd", "evtxecmd", "pecmd", "recmd", "amcacheparser",
+            "mftecmd", "evtxecmd", "prefetch", "recmd", "amcacheparser",
             "appcompatcacheparser", "lecmd", "jlecmd", "rbcmd", "sbecmd",
             "wxtcmd", "sqlecmd", "srumecmd",
         ]
@@ -88,9 +88,9 @@ class TestEvtxNormalizer:
         assert result["category"] == "persistence"
 
 
-class TestPECmdNormalizer:
+class TestPrefetchNormalizer:
     def test_prefetch_entry(self):
-        n = PECmdNormalizer()
+        n = PrefetchNormalizer()
         row = {
             "ExecutableName": "POWERSHELL.EXE",
             "RunCount": "5",

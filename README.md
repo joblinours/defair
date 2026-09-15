@@ -136,13 +136,15 @@ Available MCP tools:
 
 | Tool | Description |
 |------|-------------|
-| `list_cases` | List all forensic cases |
+| **Case & Evidence** | |
 | `create_case` | Create a new investigation case |
+| `list_cases` | List all forensic cases |
 | `get_case` | Get case details by ID or case number |
 | `register_evidence` | Register evidence with SHA-256 hash |
 | `list_evidence` | List evidence (optionally filtered by case) |
 | `get_evidence` | Get evidence details by ID or number |
 | `verify_evidence` | Re-hash evidence and verify integrity |
+| **Container** | |
 | `create_container` | Create an isolated forensic container |
 | `list_containers` | List DEFAIR containers |
 | `get_container_info` | Get container details |
@@ -151,6 +153,31 @@ Available MCP tools:
 | `remove_container` | Remove a container |
 | `exec_in_container` | Execute a command inside a container |
 | `container_logs` | Get container logs |
+| **Discovery & Analysis** | |
+| `discover_evidence` | Discover forensic artifacts on mounted evidence |
+| `list_tools` | List available forensic tools |
+| `tools_health` | Check tool availability in a container |
+| `list_tool_runs` | List past analysis runs |
+| `list_artifacts` | List normalized artifacts from analysis |
+| `analyze_evtx` | Parse Windows Event Logs (EvtxECmd) |
+| `analyze_mft` | Parse NTFS Master File Table (MFTECmd) |
+| `analyze_registry` | Parse Windows Registry hives (RECmd) |
+| `analyze_prefetch` | Parse Prefetch files (PECmd) |
+| `analyze_amcache` | Parse Amcache.hve (AmcacheParser) |
+| `analyze_shimcache` | Parse Shimcache (AppCompatCacheParser) |
+| `analyze_jumplist` | Parse Jump Lists (JLECmd) |
+| `analyze_lnk` | Parse LNK shortcuts (LECmd) |
+| `analyze_recyclebin` | Parse Recycle Bin (RBCmd) |
+| `analyze_shellbags` | Parse ShellBags (SBECmd) |
+| `analyze_srum` | Parse SRUM database (SrumECmd) |
+| `analyze_wintimeline` | Parse Windows Timeline (WxTCmd) |
+| `analyze_sqlite` | Parse SQLite databases (SQLECmd) |
+| **Detection & Hunting** *(v0.3)* | |
+| `hunt_evtx` | Run Hayabusa Sigma detection on EVTX |
+| `build_timeline` | Build unified timeline summary |
+| `search_timeline` | Search/filter timeline with multi-criteria |
+| `list_findings` | List investigation findings |
+| `search_ioc` | Search IOC across all artifacts |
 
 ### Docker
 
@@ -235,7 +262,7 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - Structured logging with correlation IDs
 - Docker + CI/CD
 
-### ✅ v0.1.5 — Host Wrapper + Container Orchestration (current)
+### ✅ v0.1.5 — Host Wrapper + Container Orchestration
 
 - Docker SDK integration — orchestrate forensic containers from the host
 - One container per investigation, evidence mounted read-only
@@ -244,19 +271,41 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - Persistent workspaces at `~/.defair/workspaces/`
 - AI agent can create, control, and run commands in forensic containers via MCP
 
-### 🔜 v0.2 — Windows foundation + MCP analysis
+### ✅ v0.2 — Windows foundation + MCP analysis
 
 - **Dissect** integration (host discovery, artifact identification)
-- **EZ Tools** (MFTECmd, EvtxECmd, RECmd, PECmd) with wrappers
-- Normalization layer
-- MCP tools: `discover_evidence`, `analyze_evtx`, `analyze_mft`, `analyze_registry`
+- **14 EZ Tools** with BaseTool wrappers + normalizers: MFTECmd, EvtxECmd, RECmd, PECmd, AmcacheParser, AppCompatCacheParser, JLECmd, LECmd, RBCmd, SBECmd, SrumECmd, WxTCmd, SQLECmd, bstrings
+- Normalization layer (BaseNormalizer → unified artifact schema)
+- Evidence discovery with automatic tool recommendations
+- MCP tools: `discover_evidence`, `analyze_evtx`, `analyze_mft`, `analyze_registry`, `analyze_prefetch`, `analyze_amcache`, `analyze_shimcache`, `analyze_jumplist`, `analyze_lnk`, `analyze_recyclebin`, `analyze_shellbags`, `analyze_srum`, `analyze_wintimeline`, `analyze_sqlite`
+- Tested on HackTheBox DFIR challenges (Jingle Bell, Recollection)
 
-### 📋 v0.3 — Detection + Timeline + MCP hunting
+### ✅ v0.3 — Detection + Timeline + MCP hunting (current)
 
-- **Hayabusa** integration (Sigma detection, EVTX hunting)
-- Timeline Engine (unified schema, SQLite backend, search)
-- Findings Engine (severity, confidence, IOC correlation)
-- MCP tools: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`
+- **Hayabusa v4.1** integration (4000+ Sigma rules, MITRE ATT&CK mapping)
+- Timeline Engine — unified timeline over all artifacts (summary, search, export CSV/JSONL)
+- Findings Engine — auto-created from Hayabusa high/critical detections (`FND-NNN`)
+- IOC search across all artifacts (description, data, hostname, username)
+- Hunting orchestration (`hunt_evtx` → detect → normalize → findings)
+- CLI: `defair hunt`, `defair timeline`, `defair findings`, `defair search`
+- MCP: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`
+- 179 tests, 15 tool wrappers
+
+### 🔜 v0.3.1 — Prefetch analysis fix
+
+- **PECmd** uses a Windows-only API to parse Prefetch files — broken in Linux containers
+- Replace PECmd with a cross-platform alternative (Python-native Prefetch parser)
+- Ensure `analyze_prefetch` MCP tool works end-to-end in the container
+
+### 🔜 v0.3.5 — Mass YARA + Sigma scanning
+
+- **YARA** mass scanner on mounted evidence (files, memory dumps, disk images)
+- **Sigma** mass scanner via Hayabusa on all EVTX sources
+- Default rule sets embedded in the container (YARA community rules + Hayabusa Sigma rules)
+- Custom rules mounting: users can bind-mount their own `/rules/yara/` and `/rules/sigma/` directories
+- Scan results normalized as Findings with severity, confidence, and MITRE mapping
+- MCP tools: `scan_yara`, `scan_sigma`
+- CLI: `defair scan yara`, `defair scan sigma`
 
 ### 📋 v0.4 — Orchestration + MCP profiles
 
@@ -296,17 +345,18 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 
 ## Forensic engines (planned)
 
-| Engine | Purpose | Phase |
-|--------|---------|-------|
-| **Dissect** | Host discovery, artifact identification, filesystem access | v0.2 |
-| **EZ Tools** | Windows artifacts (MFT, EVTX, Registry, Prefetch, Amcache, ...) | v0.2 |
-| **Hayabusa** | EVTX detection with Sigma rules, threat hunting | v0.3 |
-| **Plaso** | Supertimeline, multi-source timestamp normalization | v0.4 |
-| **Volatility 3** | Memory forensics (processes, network, DLLs, persistence) | v0.6 |
-| **Chainsaw** | Fast EVTX search, Sigma detection | v0.6 |
-| **Zeek** | Network traffic analysis, protocol logs | v0.6 |
-| **TShark** | Packet capture analysis | v0.6 |
-| **Suricata** | Network IDS, alert generation | v0.6 |
+| Engine | Purpose | Phase | Status |
+|--------|---------|-------|--------|
+| **Dissect** | Host discovery, artifact identification, filesystem access | v0.2 | ✅ |
+| **EZ Tools** (14 tools) | Windows artifacts (MFT, EVTX, Registry, Prefetch, Amcache, ...) | v0.2 | ✅ |
+| **Hayabusa** | EVTX detection with 4000+ Sigma rules, MITRE ATT&CK | v0.3 | ✅ |
+| **YARA** | File/memory pattern matching, malware detection | v0.3.5 | 🔜 |
+| **Plaso** | Supertimeline, multi-source timestamp normalization | v0.4 | 📋 |
+| **Volatility 3** | Memory forensics (processes, network, DLLs, persistence) | v0.6 | 📋 |
+| **Chainsaw** | Fast EVTX search, Sigma detection | v0.6 | 📋 |
+| **Zeek** | Network traffic analysis, protocol logs | v0.6 | 📋 |
+| **TShark** | Packet capture analysis | v0.6 | 📋 |
+| **Suricata** | Network IDS, alert generation | v0.6 | 📋 |
 
 ---
 
