@@ -119,6 +119,9 @@ async def run_tool_and_normalize(
         **kwargs,
     )
 
+    # Use the resolved UUID from tool_run (run_tool resolves case_number → UUID)
+    resolved_case_id = tool_run.case_id
+
     # Normalize outputs
     artifact_count = 0
     if tool_run.status == ToolRunStatus.COMPLETED and tool_run.output_path:
@@ -126,7 +129,7 @@ async def run_tool_and_normalize(
         if normalizer:
             artifacts = normalizer.normalize_directory(
                 tool_run.output_path,
-                case_id=case_id,
+                case_id=resolved_case_id,
                 evidence_id=evidence_id,
                 run_id=tool_run.id,
             )
@@ -139,6 +142,7 @@ async def run_tool_and_normalize(
     return {
         "run_id": tool_run.id,
         "run_number": tool_run.run_number,
+        "case_id": resolved_case_id,
         "tool": tool_name,
         "status": tool_run.status,
         "exit_code": tool_run.exit_code,

@@ -53,11 +53,12 @@ async def scan_yara(
         **tool_kwargs,
     )
 
-    # Auto-create findings from YARA matches
+    # Auto-create findings from YARA matches (use resolved UUID from result)
+    resolved_case_id = result.get("case_id", case_id)
     findings_created = 0
     if result.get("artifact_count", 0) > 0:
         findings_created = await _auto_create_findings_from_yara(
-            conn, case_id, result.get("run_id", ""),
+            conn, resolved_case_id, result.get("run_id", ""),
         )
 
     result["findings_created"] = findings_created
@@ -109,11 +110,12 @@ async def scan_sigma(
         **tool_kwargs,
     )
 
-    # Auto-create findings from Sigma detections
+    # Auto-create findings from Sigma detections (use resolved UUID from result)
+    resolved_case_id = result.get("case_id", case_id)
     findings_created = 0
     if result.get("artifact_count", 0) > 0:
         findings_created = await finding_service.auto_create_findings_from_hayabusa(
-            conn, case_id, result.get("run_id", ""),
+            conn, resolved_case_id, result.get("run_id", ""),
         )
 
     result["findings_created"] = findings_created

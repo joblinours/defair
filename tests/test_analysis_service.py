@@ -51,3 +51,35 @@ class TestAnalysisServiceDB:
             await analysis_service.run_tool(
                 db_conn, "nonexistent_tool", "/input", cid
             )
+
+    @pytest.mark.asyncio
+    async def test_run_tool_and_normalize_resolves_case_number(self, db_conn, tmp_path):
+        """run_tool_and_normalize must pass the resolved UUID (not the case_number)
+        to the normalizer so artifacts get the correct case_id FK."""
+        from datetime import UTC, datetime
+        from uuid import uuid4
+
+        cid = uuid4().hex
+        now = datetime.now(UTC).isoformat()
+        await db_conn.execute(
+            "INSERT INTO cases (id, case_number, name, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (cid, "CASE-2026-050", "FK Test", now, now),
+        )
+        await db_conn.commit()
+
+        # Create a dummy .pf directory (prefetch tool handles empty dirs gracefully)
+        input_dir = tmp_path / "evidence"
+        input_dir.mkdir()
+
+        result = await analysis_service.run_tool_and_normalize(
+            db_conn,
+            tool_name="prefetch",
+            input_path=str(input_dir),
+            case_id="CASE-2026-050",
+            output_base=str(tmp_path / "output"),
+        )
+
+        # The returned case_id must be the UUID, not the case_number
+        assert result["case_id"] == cid
+        assert result["status"] == "completed"

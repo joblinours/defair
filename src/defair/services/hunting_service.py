@@ -53,10 +53,12 @@ async def hunt_evtx(
     )
 
     # Step 3: Auto-create findings from high/critical detections
+    # Use resolved UUID from run_tool_and_normalize result
+    resolved_case_id = result.get("case_id", case_id)
     findings = []
     if result.get("status") == "completed" and result.get("run_id"):
         findings = await auto_create_findings_from_hayabusa(
-            conn, case_id, result["run_id"],
+            conn, resolved_case_id, result["run_id"],
         )
 
     result["findings_created"] = len(findings)
