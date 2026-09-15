@@ -45,6 +45,10 @@ async def create_finding(
     """Create a new finding."""
     from uuid import uuid4
 
+    from defair.services.case_service import resolve_case_id
+
+    case_id = await resolve_case_id(conn, case_id)
+
     finding_id = uuid4().hex
     finding_number = await _next_finding_number(conn)
     now = datetime.now(UTC).isoformat()
@@ -91,6 +95,9 @@ async def list_findings(
     params: list = []
 
     if case_id:
+        from defair.services.case_service import resolve_case_id
+
+        case_id = await resolve_case_id(conn, case_id)
         query += " AND case_id = ?"
         params.append(case_id)
     if severity:

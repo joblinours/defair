@@ -26,8 +26,28 @@ class TestAnalysisServiceDB:
         assert arts == []
 
     @pytest.mark.asyncio
+    async def test_run_unknown_case(self, db_conn):
+        with pytest.raises(ValueError, match="Case not found"):
+            await analysis_service.run_tool(
+                db_conn, "nonexistent_tool", "/input", "CASE-9999-999"
+            )
+
+    @pytest.mark.asyncio
     async def test_run_unknown_tool(self, db_conn):
+        # Create a case first so resolution passes
+        from datetime import UTC, datetime
+        from uuid import uuid4
+
+        cid = uuid4().hex
+        now = datetime.now(UTC).isoformat()
+        await db_conn.execute(
+            "INSERT INTO cases (id, case_number, name, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (cid, "CASE-2026-099", "Test", now, now),
+        )
+        await db_conn.commit()
+
         with pytest.raises(ValueError, match="Unknown tool"):
             await analysis_service.run_tool(
-                db_conn, "nonexistent_tool", "/input", "CASE-001"
+                db_conn, "nonexistent_tool", "/input", cid
             )

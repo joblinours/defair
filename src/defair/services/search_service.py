@@ -31,6 +31,10 @@ async def search_ioc(
     Returns:
         Dict with ioc, matches, match_count, tools_matched.
     """
+    from defair.services.case_service import resolve_case_id
+
+    case_id = await resolve_case_id(conn, case_id)
+
     like = f"%{value}%"
 
     cursor = await conn.execute(

@@ -26,6 +26,10 @@ async def build_timeline(
 
     Returns stats: total events, time range, breakdown by tool and category.
     """
+    from defair.services.case_service import resolve_case_id
+
+    case_id = await resolve_case_id(conn, case_id)
+
     # Total count
     cursor = await conn.execute(
         "SELECT COUNT(*) FROM artifacts WHERE case_id = ? AND timestamp IS NOT NULL",
@@ -102,6 +106,10 @@ async def search_timeline(
 
     Returns artifacts ordered by timestamp ASC.
     """
+    from defair.services.case_service import resolve_case_id
+
+    case_id = await resolve_case_id(conn, case_id)
+
     sql = "SELECT * FROM artifacts WHERE case_id = ? AND timestamp IS NOT NULL"
     params: list = [case_id]
 

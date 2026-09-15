@@ -56,6 +56,11 @@ async def run_tool(
     Returns:
         The completed ToolRun with execution details.
     """
+    from defair.services.case_service import resolve_case_id
+
+    # Resolve case_number (CASE-YYYY-NNN) → UUID if needed
+    case_id = await resolve_case_id(conn, case_id)
+
     if registry is None:
         registry = get_default_registry()
 
@@ -149,6 +154,9 @@ async def list_tool_runs(
 ) -> list[dict]:
     """List tool runs, optionally filtered by case."""
     if case_id:
+        from defair.services.case_service import resolve_case_id
+
+        case_id = await resolve_case_id(conn, case_id)
         cursor = await conn.execute(
             "SELECT * FROM tool_runs WHERE case_id = ? ORDER BY created_at DESC",
             (case_id,),
@@ -188,6 +196,9 @@ async def list_artifacts(
     params: list = []
 
     if case_id:
+        from defair.services.case_service import resolve_case_id
+
+        case_id = await resolve_case_id(conn, case_id)
         query += " AND case_id = ?"
         params.append(case_id)
     if category:

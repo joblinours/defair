@@ -17,7 +17,7 @@ dependencies = [
     "fastmcp>=2.13",
     "pyyaml>=6.0",
     "docker>=7.1",
-    "windowsprefetch>=4.0",
+    "libscca-python>=20240120",
     "yara-python>=4.5",
 ]
 

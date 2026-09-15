@@ -1,11 +1,12 @@
 """Tests for the cross-platform Prefetch parser (PrefetchTool).
 
-Tests the Python-native prefetch parser that replaces PECmd.
+Tests the libscca-based prefetch parser that replaces PECmd and windowsprefetch.
 """
 
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,10 @@ class TestPrefetchToolManifest:
         assert "program_execution" in m.sans_categories
         assert "pf" in m.input_types
 
+    def test_manifest_vendor(self):
+        m = PrefetchTool.manifest()
+        assert "libscca" in m.vendor
+
     def test_manifest_artifact_types(self):
         m = PrefetchTool.manifest()
         assert "windows.prefetch.execution" in m.artifact_types
@@ -43,7 +48,7 @@ class TestPrefetchToolManifest:
     def test_is_available_without_lib(self):
         tool = PrefetchTool()
         with (
-            patch.dict("sys.modules", {"windowsprefetch": None}),
+            patch.dict("sys.modules", {"pyscca": None}),
             patch("builtins.__import__", side_effect=ImportError),
         ):
             assert tool.is_available() is False
@@ -51,33 +56,39 @@ class TestPrefetchToolManifest:
 
 class TestPrefetchToolParsing:
     def test_extract_row(self):
-        """Test _extract_row with a mock Prefetch object."""
-        mock_pf = MagicMock()
-        mock_pf.executableName = "POWERSHELL.EXE"
-        mock_pf.hash = "ABCD1234"
-        mock_pf.runCount = 5
-        mock_pf.timestamps = [
-            "2026-01-15 14:30:00",
-            "2026-01-14 10:00:00",
-            "2026-01-13 09:00:00",
-        ]
-        mock_pf.resources = [
+        """Test _extract_row with a mock pyscca file object."""
+        mock_scca = MagicMock()
+        mock_scca.get_executable_filename.return_value = "POWERSHELL.EXE"
+        mock_scca.get_prefetch_hash.return_value = 0xABCD1234
+        mock_scca.get_run_count.return_value = 5
+
+        # Timestamps
+        # pyscca returns naive datetimes (no tz), matching Windows FILETIME
+        ts1 = datetime(2026, 1, 15, 14, 30, 0)  # noqa: DTZ001
+        ts2 = datetime(2026, 1, 14, 10, 0, 0)  # noqa: DTZ001
+        ts3 = datetime(2026, 1, 13, 9, 0, 0)  # noqa: DTZ001
+
+        def get_last_run_time(i):
+            return [ts1, ts2, ts3][i] if i < 3 else None
+        mock_scca.get_last_run_time.side_effect = get_last_run_time
+
+        # Filenames
+        mock_scca.get_number_of_filenames.return_value = 2
+        mock_scca.get_filename.side_effect = [
             "\\VOLUME{01}\\WINDOWS\\SYSTEM32\\POWERSHELL.EXE",
             "\\VOLUME{01}\\WINDOWS\\SYSTEM32\\NTDLL.DLL",
         ]
-        mock_pf.directoryStringsArray = [
-            ["\\VOLUME{01}\\WINDOWS\\SYSTEM32", "\\VOLUME{01}\\WINDOWS"],
-        ]
-        mock_pf.volumesInformationArray = [
-            {
-                "Volume Name": "\\DEVICE\\HARDDISKVOLUME2".encode("UTF-16"),
-                "Serial Number": "A1B2C3D4",
-                "Creation Date": "2025-06-01 00:00:00",
-            }
-        ]
+
+        # Volume info
+        mock_scca.get_number_of_volumes.return_value = 1
+        mock_vol = MagicMock()
+        mock_vol.device_path = "\\DEVICE\\HARDDISKVOLUME2"
+        mock_vol.serial_number = 0xA1B2C3D4
+        mock_vol.creation_time = datetime(2025, 6, 1, 0, 0, 0)  # noqa: DTZ001
+        mock_scca.get_volume_information.return_value = mock_vol
 
         tool = PrefetchTool()
-        row = tool._extract_row(mock_pf, Path("/evidence/POWERSHELL.EXE-1234.pf"))
+        row = tool._extract_row(mock_scca, Path("/evidence/POWERSHELL.EXE-1234.pf"))
 
         assert row["ExecutableName"] == "POWERSHELL.EXE"
         assert row["Hash"] == "ABCD1234"
@@ -97,7 +108,7 @@ class TestPrefetchToolParsing:
             {
                 "SourceFilename": "/evidence/CALC.EXE-1234.pf",
                 "ExecutableName": "CALC.EXE",
-                "Hash": "AAAA",
+                "Hash": "AAAA0000",
                 "RunCount": "3",
                 "LastRun": "2026-01-15 14:00:00",
                 "PreviousRun0": "",

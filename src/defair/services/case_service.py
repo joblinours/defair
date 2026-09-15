@@ -101,6 +101,36 @@ async def get_case(
     return _row_to_case(row)
 
 
+async def resolve_case_id(
+    conn: aiosqlite.Connection,
+    case_id_or_number: str,
+) -> str:
+    """Resolve a case_number (CASE-YYYY-NNN) or UUID to the internal UUID.
+
+    If already a UUID, validates it exists and returns it.
+    If a case_number, looks it up and returns the UUID.
+
+    Raises:
+        ValueError: If the case cannot be found.
+    """
+    if case_id_or_number.upper().startswith("CASE-"):
+        cursor = await conn.execute(
+            "SELECT id FROM cases WHERE case_number = ?",
+            (case_id_or_number.upper(),),
+        )
+    else:
+        # Already a UUID — verify it exists
+        cursor = await conn.execute(
+            "SELECT id FROM cases WHERE id = ?",
+            (case_id_or_number,),
+        )
+
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError(f"Case not found: {case_id_or_number}")
+    return row[0]
+
+
 def _row_to_case(row: aiosqlite.Row) -> Case:
     """Convert a database row to a Case model."""
     return Case(

@@ -1,7 +1,7 @@
 """PrefetchTool — cross-platform Windows Prefetch parser.
 
-Replaces PECmd (which requires Windows APIs) with the pure-Python
-`windowsprefetch` library. Runs natively on Linux containers.
+Uses libscca (via pyscca) which handles all Prefetch format versions
+including Win10+ MAM-compressed files natively on Linux.
 
 Covers SANS FOR500 categories:
 - Program Execution (which programs ran, when, how often)
@@ -32,10 +32,11 @@ log = structlog.get_logger(component="tools.prefetch")
 
 
 class PrefetchTool(BaseTool):
-    """Pure-Python Prefetch parser using windowsprefetch library.
+    """Cross-platform Prefetch parser using libscca (pyscca).
 
-    Unlike PECmd which requires Windows APIs, this runs natively
-    on Linux. Produces CSV output compatible with the normalizer.
+    Unlike PECmd (Windows-only .NET) and windowsprefetch (uses ctypes.windll
+    for Win10+ MAM decompression), libscca is a C library that handles all
+    Prefetch format versions natively on Linux.
     """
 
     @staticmethod
@@ -43,10 +44,11 @@ class PrefetchTool(BaseTool):
         return ToolManifest(
             name="prefetch",
             display_name="Prefetch Parser",
-            vendor="DEFAIR (windowsprefetch)",
+            vendor="DEFAIR (libscca)",
             description=(
                 "Cross-platform Windows Prefetch parser. Extracts execution "
-                "history, run counts, timestamps, and referenced files/directories."
+                "history, run counts, timestamps, and referenced files/directories. "
+                "Supports all format versions including Win10+ (MAM compression)."
             ),
             category=ToolCategory.EXECUTION,
             command="python-native",
@@ -68,9 +70,9 @@ class PrefetchTool(BaseTool):
         return ["python-native", "prefetch", input_path, output_dir]
 
     def is_available(self) -> bool:
-        """Always available — pure Python, no external binary."""
+        """Available if pyscca (libscca-python) is importable."""
         try:
-            import windowsprefetch  # noqa: F401
+            import pyscca  # noqa: F401
 
             return True
         except ImportError:
@@ -86,7 +88,7 @@ class PrefetchTool(BaseTool):
         timeout: int | None = None,
         **kwargs,
     ) -> ToolRun:
-        """Parse Prefetch files using windowsprefetch library.
+        """Parse Prefetch files using libscca.
 
         Supports a single .pf file or a directory of .pf files.
         Writes results to a CSV in output_dir.
@@ -117,6 +119,7 @@ class PrefetchTool(BaseTool):
         out.mkdir(parents=True, exist_ok=True)
 
         start = time.monotonic()
+        rows = []
         try:
             # Run parsing in a thread to not block the event loop
             rows = await asyncio.wait_for(
@@ -160,14 +163,14 @@ class PrefetchTool(BaseTool):
             run_number=run_number,
             status=tool_run.status,
             duration=tool_run.duration_seconds,
-            parsed=len(rows) if tool_run.status == ToolRunStatus.COMPLETED else 0,
+            parsed=len(rows),
         )
 
         return tool_run
 
     def _parse_prefetch_files(self, input_path: str) -> list[dict]:
-        """Parse one or more .pf files, returning dicts for CSV output."""
-        import windowsprefetch
+        """Parse one or more .pf files using libscca, returning dicts for CSV output."""
+        import pyscca
 
         path = Path(input_path)
         pf_files = []
@@ -186,56 +189,93 @@ class PrefetchTool(BaseTool):
         rows = []
         for pf_path in pf_files:
             try:
-                pf = windowsprefetch.Prefetch(str(pf_path))
-                row = self._extract_row(pf, pf_path)
-                rows.append(row)
+                scca_file = pyscca.file()
+                scca_file.open(str(pf_path))
+                try:
+                    row = self._extract_row(scca_file, pf_path)
+                    rows.append(row)
+                finally:
+                    scca_file.close()
             except Exception as e:
                 log.warning("prefetch_parse_error", file=str(pf_path), error=str(e))
 
         return rows
 
     @staticmethod
-    def _extract_row(pf, pf_path: Path) -> dict:
-        """Extract a flat dict from a parsed Prefetch object."""
-        # Timestamps — Hayabusa-style list, first is most recent
-        timestamps = getattr(pf, "timestamps", [])
+    def _extract_row(scca_file, pf_path: Path) -> dict:
+        """Extract a flat dict from a pyscca file object."""
+        # Executable name
+        exe_name = scca_file.get_executable_filename() or ""
+
+        # Prefetch hash
+        pf_hash = ""
+        try:
+            pf_hash = f"{scca_file.get_prefetch_hash():08X}"
+        except Exception:
+            log.debug("prefetch_hash_unavailable", file=str(pf_path))
+
+        # Run count
+        run_count = scca_file.get_run_count()
+
+        # Timestamps — up to 8 last run times
+        timestamps = []
+        for i in range(8):
+            try:
+                ts = scca_file.get_last_run_time(i)
+                if ts and ts.year > 1601:  # Filter out null FILETIME (1601-01-01)
+                    timestamps.append(ts.strftime("%Y-%m-%d %H:%M:%S"))
+            except Exception:
+                break
+
         last_run = timestamps[0] if timestamps else ""
-        previous_runs = timestamps[1:8] if len(timestamps) > 1 else []
+        previous_runs = timestamps[1:] if len(timestamps) > 1 else []
 
-        # Resources loaded (files referenced during execution)
-        resources = getattr(pf, "resources", [])
-        resources_str = "; ".join(resources) if resources else ""
+        # Referenced files (filenames / resources loaded)
+        filenames = []
+        try:
+            for i in range(scca_file.get_number_of_filenames()):
+                fn = scca_file.get_filename(i)
+                if fn:
+                    filenames.append(fn)
+        except Exception:
+            log.debug("prefetch_filenames_error", file=str(pf_path))
+        resources_str = "; ".join(filenames) if filenames else ""
 
-        # Directory strings
-        dir_strings = []
-        for volume in getattr(pf, "directoryStringsArray", []):
-            if isinstance(volume, (list, tuple)):
-                dir_strings.extend(volume)
-            else:
-                dir_strings.append(str(volume))
-        dirs_str = "; ".join(dir_strings)
+        # Directories from filenames (extract unique directory parts)
+        dirs = set()
+        for fn in filenames:
+            parts = fn.rsplit("\\", 1)
+            if len(parts) > 1:
+                dirs.add(parts[0])
+        dirs_str = "; ".join(sorted(dirs))
 
         # Volume info
-        vol_info = getattr(pf, "volumesInformationArray", [])
         vol0_name = ""
         vol0_serial = ""
         vol0_created = ""
-        if vol_info:
-            v = vol_info[0]
-            vol0_name_raw = v.get("Volume Name", b"")
-            vol0_name = (
-                vol0_name_raw.decode("UTF-16", errors="backslashreplace")
-                if isinstance(vol0_name_raw, bytes)
-                else str(vol0_name_raw)
-            )
-            vol0_serial = v.get("Serial Number", "")
-            vol0_created = v.get("Creation Date", "")
+        try:
+            if scca_file.get_number_of_volumes() > 0:
+                vol = scca_file.get_volume_information(0)
+                vol0_name = getattr(vol, "device_path", "") or ""
+                vol0_serial = ""
+                vol0_created = ""
+                try:
+                    vol0_serial = f"{vol.serial_number:08X}" if vol.serial_number else ""
+                except Exception:
+                    log.debug("prefetch_vol_serial_error", file=str(pf_path))
+                try:
+                    if vol.creation_time and vol.creation_time.year > 1601:
+                        vol0_created = vol.creation_time.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    log.debug("prefetch_vol_time_error", file=str(pf_path))
+        except Exception:
+            log.debug("prefetch_volume_error", file=str(pf_path))
 
         return {
             "SourceFilename": str(pf_path),
-            "ExecutableName": getattr(pf, "executableName", ""),
-            "Hash": getattr(pf, "hash", ""),
-            "RunCount": str(getattr(pf, "runCount", 0)),
+            "ExecutableName": exe_name,
+            "Hash": pf_hash,
+            "RunCount": str(run_count),
             "LastRun": last_run,
             "PreviousRun0": previous_runs[0] if len(previous_runs) > 0 else "",
             "PreviousRun1": previous_runs[1] if len(previous_runs) > 1 else "",
