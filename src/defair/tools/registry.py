@@ -109,6 +109,7 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.sqlecmd import SQLECmdTool
     from defair.tools.srumecmd import SrumECmdTool
     from defair.tools.wxtcmd import WxTCmdTool
+    from defair.tools.yara_scanner import YaraTool
 
     registry = ToolRegistry()
     for tool_cls in [
@@ -127,6 +128,7 @@ def get_default_registry() -> ToolRegistry:
         WxTCmdTool,
         SQLECmdTool,
         SrumECmdTool,
+        YaraTool,
     ]:
         registry.register(tool_cls())
 

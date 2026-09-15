@@ -1144,6 +1144,83 @@ async def search_ioc(container: str, case_id: str, value: str) -> str:
     return await _proxy_defair(container, ["search", value, "--case", case_id])
 
 
+# ── Mass scanning tools (v0.3.5) ─────────────────────────────────────
+
+
+@mcp.tool()
+async def scan_yara(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    rules_dir: str | None = None,
+    file_timeout: int = 60,
+) -> str:
+    """Mass scan files with YARA rules.
+
+    Scans files and directories against YARA rules to detect malware,
+    suspicious patterns, and IOCs. Creates findings for each matching rule.
+
+    Built-in rules are at /opt/yara/rules/. Mount custom rules at /rules/yara/.
+
+    Args:
+        container: Container name.
+        input_path: File or directory to scan.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        rules_dir: Additional custom YARA rules directory.
+        file_timeout: Per-file scan timeout in seconds.
+
+    Returns:
+        Scan results with match count and findings created.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="scan_yara", correlation_id=cid,
+             container=container)
+
+    cmd = ["scan", "yara", input_path, "--case", case_id, "--timeout", str(file_timeout)]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if rules_dir:
+        cmd.extend(["--rules-dir", rules_dir])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def scan_sigma(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    rules_dir: str | None = None,
+    min_level: str = "medium",
+) -> str:
+    """Mass scan EVTX files with Sigma rules via Hayabusa.
+
+    Scans all EVTX files in a directory against Sigma detection rules.
+    Creates findings for high/critical detections.
+
+    Built-in rules are at /opt/hayabusa/rules/. Mount custom rules at /rules/sigma/.
+
+    Args:
+        container: Container name.
+        input_path: Directory containing EVTX files.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        rules_dir: Custom Sigma rules directory.
+        min_level: Minimum detection level (informational/low/medium/high/critical).
+
+    Returns:
+        Scan results with detection count and findings created.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="scan_sigma", correlation_id=cid,
+             container=container)
+
+    cmd = ["scan", "sigma", input_path, "--case", case_id, "--min-level", min_level]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if rules_dir:
+        cmd.extend(["--rules-dir", rules_dir])
+    return await _proxy_defair(container, cmd)
+
+
 def main() -> None:
     """Entry point for the DEFAIR MCP server (stdio transport)."""
     log.info("mcp_server_starting", transport="stdio")

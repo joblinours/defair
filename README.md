@@ -280,7 +280,7 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - MCP tools: `discover_evidence`, `analyze_evtx`, `analyze_mft`, `analyze_registry`, `analyze_prefetch`, `analyze_amcache`, `analyze_shimcache`, `analyze_jumplist`, `analyze_lnk`, `analyze_recyclebin`, `analyze_shellbags`, `analyze_srum`, `analyze_wintimeline`, `analyze_sqlite`
 - Tested on HackTheBox DFIR challenges (Jingle Bell, Recollection)
 
-### ✅ v0.3 — Detection + Timeline + MCP hunting (current)
+### ✅ v0.3 — Detection + Timeline + MCP hunting
 
 - **Hayabusa v4.1** integration (4000+ Sigma rules, MITRE ATT&CK mapping)
 - Timeline Engine — unified timeline over all artifacts (summary, search, export CSV/JSONL)
@@ -289,23 +289,22 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - Hunting orchestration (`hunt_evtx` → detect → normalize → findings)
 - CLI: `defair hunt`, `defair timeline`, `defair findings`, `defair search`
 - MCP: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`
-- 179 tests, 15 tool wrappers
 
-### 🔜 v0.3.1 — Prefetch analysis fix
+### ✅ v0.3.1 — Prefetch analysis fix
 
-- **PECmd** uses a Windows-only API to parse Prefetch files — broken in Linux containers
-- Replace PECmd with a cross-platform alternative (Python-native Prefetch parser)
-- Ensure `analyze_prefetch` MCP tool works end-to-end in the container
+- Replaced **PECmd** (Windows-only) with cross-platform Python-native Prefetch parser (`windowsprefetch`)
+- `analyze_prefetch` MCP tool works end-to-end in Linux containers
 
-### 🔜 v0.3.5 — Mass YARA + Sigma scanning
+### ✅ v0.3.5 — Mass YARA + Sigma scanning (current)
 
 - **YARA** mass scanner on mounted evidence (files, memory dumps, disk images)
 - **Sigma** mass scanner via Hayabusa on all EVTX sources
 - Default rule sets embedded in the container (YARA community rules + Hayabusa Sigma rules)
-- Custom rules mounting: users can bind-mount their own `/rules/yara/` and `/rules/sigma/` directories
+- Custom rules mounting: bind-mount `/rules/yara/` and `/rules/sigma/` for custom rules
 - Scan results normalized as Findings with severity, confidence, and MITRE mapping
 - MCP tools: `scan_yara`, `scan_sigma`
 - CLI: `defair scan yara`, `defair scan sigma`
+- 209 tests, 16 tool wrappers
 
 ### 📋 v0.4 — Orchestration + MCP profiles
 

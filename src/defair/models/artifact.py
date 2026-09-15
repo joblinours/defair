@@ -22,6 +22,7 @@ class ArtifactCategory(StrEnum):
     BROWSER_USAGE = "browser_usage"
     PERSISTENCE = "persistence"
     SYSTEM_INFO = "system_info"
+    MALWARE = "malware"
     OTHER = "other"
 
 

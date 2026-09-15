@@ -92,6 +92,19 @@ RUN cd /tmp && \
     echo "  ✓ Hayabusa ${HAYABUSA_VERSION} installed"
 
 # -----------------------------------------------------------------------
+# Install YARA + community rules
+# -----------------------------------------------------------------------
+RUN pip install --no-cache-dir yara-python && \
+    mkdir -p /opt/yara/rules && \
+    cd /tmp && \
+    wget -q "https://github.com/Yara-Rules/rules/archive/refs/heads/master.zip" \
+        -O yara-rules.zip && \
+    unzip -q yara-rules.zip -d yara-rules && \
+    cp -r yara-rules/rules-master/* /opt/yara/rules/ && \
+    rm -rf yara-rules yara-rules.zip && \
+    echo "  ✓ YARA + community rules installed"
+
+# -----------------------------------------------------------------------
 # Install DEFAIR Python package + Dissect
 # -----------------------------------------------------------------------
 COPY pyproject.toml README.md ./

@@ -9,7 +9,7 @@ class TestToolRegistry:
     def test_default_registry_has_15_tools(self):
         registry = get_default_registry()
         manifests = registry.list_all()
-        assert len(manifests) == 15
+        assert len(manifests) == 16
 
     def test_all_tools_have_names(self):
         registry = get_default_registry()
@@ -48,7 +48,7 @@ class TestToolRegistry:
         registry = get_default_registry()
         health = registry.health_check()
         assert isinstance(health, dict)
-        assert len(health) == 15
+        assert len(health) == 16
         # On dev machines without EZ Tools, all should be False
         assert all(isinstance(v, bool) for v in health.values())
 

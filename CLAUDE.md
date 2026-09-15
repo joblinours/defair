@@ -74,7 +74,10 @@ defair-mcp
 - `src/defair/models/finding.py` — Finding model (v0.3)
 - `src/defair/tools/hayabusa.py` — Hayabusa tool wrapper (v0.3)
 - `src/defair/tools/prefetch.py` — Cross-platform Prefetch parser (v0.3.1, replaces PECmd)
+- `src/defair/tools/yara_scanner.py` — YARA rule scanner (v0.3.5)
 - `src/defair/normalizers/hayabusa.py` — Hayabusa normalizer (v0.3)
+- `src/defair/normalizers/yara.py` — YARA normalizer (v0.3.5)
+- `src/defair/services/scanning_service.py` — Mass scanning orchestration (v0.3.5)
 - `src/defair/database.py` — SQLite schema and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation
 
@@ -84,8 +87,11 @@ defair-mcp
 - **Timeline**: `defair timeline summary/search/export --case CASE-xxx`
 - **Findings**: `defair findings list/get/create --case CASE-xxx`
 - **Search**: `defair search "IOC" --case CASE-xxx`
-- **MCP tools**: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`
-- **Finding IDs**: `FND-NNN` — auto-created from Hayabusa high/critical detections
+- **Scan YARA**: `defair scan yara /evidence/ --case CASE-xxx` — mass YARA scanning (v0.3.5)
+- **Scan Sigma**: `defair scan sigma /evidence/logs/ --case CASE-xxx` — mass Sigma scanning (v0.3.5)
+- **MCP tools**: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`, `scan_yara`, `scan_sigma`
+- **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
+- **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
 
 ## Conventions
 
