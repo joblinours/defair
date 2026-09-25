@@ -1,0 +1,21 @@
+name: rmm
+description: Remote monitoring & management / remote access tools (often abused for persistence)
+severity: medium
+tags: [attack.command_and_control, attack.t1219]
+terms:
+  - anydesk
+  - teamviewer
+  - {pattern: 'screenconnect|connectwise control', regex: true}
+  - {pattern: 'atera'}
+  - {pattern: 'splashtop'}
+  - {pattern: 'logmein'}
+  - {pattern: 'rustdesk'}
+  - {pattern: 'meshagent|meshcentral', regex: true}
+  - {pattern: 'netsupport'}
+  - {pattern: 'simplehelp'}
+  - {pattern: 'remoteutilities|rutserv', regex: true}
+  - {pattern: 'kaseya'}
+  - {pattern: 'ninjarmm|ninjaone', regex: true}
+  - {pattern: 'dwagent|dwservice', regex: true}
+  - {pattern: 'tacticalrmm'}
+  - {pattern: 'zoho assist|zohomeeting', regex: true}

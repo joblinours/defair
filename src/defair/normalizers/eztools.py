@@ -834,6 +834,7 @@ from defair.normalizers.native import (
     MplogNativeNormalizer,
     PsReadLineNativeNormalizer,
     RdpCacheNativeNormalizer,
+    StringsNativeNormalizer,
     TasksNativeNormalizer,
     WebCacheNativeNormalizer,
 )
@@ -848,6 +849,7 @@ NORMALIZER_MAP["tasks_native"] = TasksNativeNormalizer
 NORMALIZER_MAP["webcache_native"] = WebCacheNativeNormalizer
 NORMALIZER_MAP["rdpcache_native"] = RdpCacheNativeNormalizer
 NORMALIZER_MAP["iis_native"] = IisNativeNormalizer
+NORMALIZER_MAP["strings_native"] = StringsNativeNormalizer
 
 # Dissect plugin records (fallback / engine=dissect)
 from defair.normalizers.dissect import DissectNormalizer

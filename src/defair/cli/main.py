@@ -15,6 +15,7 @@ from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
 from defair.cli.evtx import evtx_group
 from defair.cli.findings import findings_group
+from defair.cli.host import host_group
 from defair.cli.hunt import hunt_cmd
 from defair.cli.normalize import normalize_group
 from defair.cli.rules import rules_group
@@ -29,6 +30,7 @@ from defair.cli.tools_cli import (
     runs_group,
     tools_group,
 )
+from defair.cli.watchlist import watchlist_group
 from defair.config import load_config
 from defair.logging import configure_logging, default_log_file, get_logger, redact_argv
 
@@ -179,3 +181,5 @@ cli.add_command(normalize_group)
 cli.add_command(profile_group)
 cli.add_command(run_group)
 cli.add_command(evtx_group)
+cli.add_command(host_group)
+cli.add_command(watchlist_group)

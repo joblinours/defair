@@ -122,6 +122,7 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.sbecmd import SBECmdTool
     from defair.tools.sqlecmd import SQLECmdTool
     from defair.tools.srumecmd import SrumECmdTool
+    from defair.tools.strings_native import StringsNativeTool
     from defair.tools.sumecmd import SumECmdTool
     from defair.tools.tasks_native import TasksNativeTool
     from defair.tools.webcache_native import WebCacheNativeTool
@@ -161,6 +162,7 @@ def get_default_registry() -> ToolRegistry:
         RdpCacheNativeTool,
         IisNativeTool,
         ChainsawTool,
+        StringsNativeTool,
     ]:
         registry.register(tool_cls())
 

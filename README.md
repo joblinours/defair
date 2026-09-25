@@ -207,6 +207,13 @@ Available MCP tools:
 | `run_profile` | Run a profile on an evidence in the background (`PRUN-NNN`) |
 | `get_run_status` / `list_runs` | Follow profile runs (steps, tools, fallbacks, errors) |
 | `cancel_run` / `resume_run` | Stop a run / resume it without re-running completed steps |
+| **Windows coverage** *(v0.4.5)* | |
+| `analyze_usn` | USN journal ($J) with MFTECmd, parent paths from the $MFT |
+| `analyze_ual` | User Access Logging (Windows Server) with SumECmd |
+| `hunt_chainsaw` | Sigma hunt with Chainsaw on the pinned rule store |
+| `list_evtx_views` / `get_evtx_view` | Typed EVTX views (logons, services, RDP, PowerShell…) |
+| `get_host_profile` | Host profile with a source per fact |
+| `list_watchlists` / `search_watchlist` | Keyword / IOC watchlists over artifacts, strings, raw files |
 | **Normalization & export** *(v0.3.8)* | |
 | `export_timeline` | Export the timeline (Timesketch JSONL, JSONL, CSV) |
 | `normalize_replay` | Rebuild a case's artifacts from its normalized JSONL |
@@ -460,16 +467,45 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - Hayabusa 4.x: `dfir-timeline` syntax, run from `/opt/hayabusa`, abbreviated levels (`crit`, `med`) mapped — critical detections now become findings
 - MCP: `get_artifact`, `get_finding`, `show_rule`; `list_artifacts` gains every filter + paging
 
-### 📋 v0.4.5 — Windows coverage completion
+### ✅ v0.4.5 — Windows coverage completion
 
-- **Remaining EZ Tools**: RecentFileCacheParser, SumECmd (UAL — Windows Server), bstrings, rla (dirty hive replay before RECmd)
-- **NTFS depth**: USN Journal (`$J`), `$I30` INDX slack (INDXRipper), `$LogFile`
-- **Extra Windows artefacts** (from ArtefactProcessor's KAPE plugin): Defender MPLog, PowerShell `ConsoleHost_history`, Scheduled Tasks XML, WebCache, RDP bitmap cache, IIS logs
-- **Typed EVTX views** — built on the v0.3.8 EventID catalog, YAML-driven routing (4624, 4625, 4688, 7045, 4698, …) exposed as filtered artifact views instead of CSV files
-- **Host profile** — hostname, OS build, users, timezone, network config, installed software, assembled from registry + Dissect *(≈ Hecatrace `systeminfo.txt`)*
-- **Keyword / IOC watchlists** — generic + per-case keyword lists, batch search over artifacts, timeline and raw strings (ripgrep-backed)
-- **Strings extraction** — ASCII + UTF-16LE from pagefile.sys, hiberfil.sys and unallocated space, indexed for IOC search
-- MCP: `analyze_usn`, `analyze_ual`, `hunt_chainsaw`, `get_host_profile`, `search_watchlist`
+**Fixes first**
+
+- MFTECmd `$J` output is normalized as `windows.usn.journal_entry` (it was a file entry without timestamp); `-m $MFT` resolves parent paths; Dissect `usnjrnl` records use the same type
+- SrumECmd: one artifact type per SRUM table (app resource usage, network usage / connectivity, energy, push notifications) instead of `network_usage` for everything
+- MCP `analyze_srum` forwards `registry_hive`; MFTECmd `--bdl` takes the drive letter only
+
+**Remaining EZ Tools** (pinned by SHA-256 like the others)
+
+- **RecentFileCacheParser** (Windows 7 program execution), **SumECmd** (User Access Logging — who reached which Windows Server role, from where), **bstrings** (pattern search in any binary; runs with a pseudo-terminal on stdin), **rla** (dirty hive replay)
+- Profile steps can read another step's output: `input: step:hives_replay` (+ `input_fallback`) — rla replays the `.LOG1/.LOG2` of dirty hives into the workspace, RECmd parses the clean copies
+
+**NTFS depth** — native parsers on `dissect.ntfs`, no mount, E01 / VMDK / VHDX / raw
+
+- **`$I30` INDX slack** (`indx_native`, INDXRipper approach): every directory of every NTFS volume; `$FILE_NAME` remnants of deleted / renamed files with their four `$FN` times; entries still live (allocation or `$INDEX_ROOT`) are dropped
+- **`$LogFile`** (`logfile_native`): file names linked / unlinked, FILE records created / freed, `$FILE_NAME` created / removed; every other operation is counted as *not decoded* in the run statistics, never guessed
+- USN journal in `windows-triage`
+
+**Extra Windows artefacts** (pure-Python parsers, Dissect plugins as fallbacks)
+
+- **Defender MPLog** (detections, processes Defender measured, SDN file hashes, exclusions), **PowerShell `ConsoleHost_history`**, **Scheduled Task XML** (actions, triggers, principal — `defusedxml`), **WebCache** (IE / legacy Edge history incl. Explorer `file://` accesses, downloads, cookies), **RDP bitmap cache** (tiles rebuilt as PNG + a collage), **IIS W3C logs**
+- Local times without a zone (task registration, some MPLog lines) are kept as text, never assumed UTC
+
+**Typed EVTX views** — `src/defair/data/evtx_views.yaml`, on top of the EventID catalog
+
+- `logons`, `process_creation`, `services`, `scheduled_tasks`, `rdp`, `powershell`, `account_changes`, `log_cleared`, `defender`, `network_shares`, `kerberos_ntlm` — filtered, column-projected views over the EVTX artifacts of any parser (EvtxECmd, native, Dissect); schema v4 indexes the EventID
+- CLI `defair evtx views` / `defair evtx view logons --case X [--since/--until/--host/--user/--event-id]`
+
+**Chainsaw** — second Sigma engine, pinned (2.16.5, SHA-256 = GitHub digest), on the **verified DEFAIR rule store** (never its own bundle): rule file, SHA-256, source, pinned ref resolved by Sigma id; findings like Raijin's — `defair hunt --engine chainsaw --rule-profile precise|broad`
+
+**Host profile** — hostname, domain, OS build, architecture, timezone, install date, users, IPs, installed applications (Dissect, also on collections), registry time zone / network profiles / USB devices / services, computer names in the logs — every fact with its source, disagreements listed as conflicts, stored as one `windows.system.host_profile` artifact per evidence *(≈ Hecatrace `systeminfo.txt`)* — `defair host profile`, profile action `host_profile`
+
+**Strings + watchlists**
+
+- **Strings extraction** (`strings_native`): ASCII + UTF-16LE of `pagefile.sys` / `swapfile.sys`, streamed through Dissect (never copied), written as a TSV index; `hiberfil.sys` reported as skipped (compressed — v0.8), unallocated space in v0.5
+- **Watchlists**: built-in (`offensive_tools`, `lolbins`, `rmm`, `exfiltration`) + per case (`/workspace/watchlists/*.yaml`), literal or regex terms; one batch search over the normalized artifacts (hits → `ART-NNN`), the strings index and the raw collection files (ASCII + UTF-16), **ripgrep**-backed (pinned) with a pure-Python fallback; JSON report + optional findings — `defair watchlist list|show|search`
+- MCP: `analyze_usn`, `analyze_ual`, `hunt_chainsaw`, `list_evtx_views`, `get_evtx_view`, `get_host_profile`, `list_watchlists`, `search_watchlist`
+- *Not yet:* hiberfil decompression (v0.8), JumpList pure-Python fallback
 
 ### 📋 v0.5 — Supertimeline
 
@@ -546,8 +582,10 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 | **Hayabusa** | EVTX hunting timeline (hayabusa-rules, distinct provenance) | `defair` | v0.3 | ✅ |
 | **YARA** (yara-python) | File pattern matching — replaced by Raijin in v0.3.7 | — | v0.3.5 | ⛔ |
 | **Raijin** (vendored) | YARA-X + Sigma cold scanner, 13 pinned rule sources | `defair` | v0.3.7 | ✅ |
-| **EZ Tools** (remaining) | RecentFileCacheParser, SumECmd, bstrings, rla | `defair` | v0.4.5 | 📋 |
-| **INDXRipper / USN parsing** | `$I30` slack, USN Journal | `defair` | v0.4.5 | 📋 |
+| **EZ Tools** (remaining) | RecentFileCacheParser, SumECmd, bstrings, rla | `defair` | v0.4.5 | ✅ |
+| **NTFS native** (dissect.ntfs) | `$I30` slack, `$LogFile`, USN Journal | `defair` | v0.4.5 | ✅ |
+| **Chainsaw** | Second Sigma engine on the pinned rule store | `defair` | v0.4.5 | ✅ |
+| **ripgrep** | Watchlist / IOC batch search | `defair` | v0.4.5 | ✅ |
 | **Plaso** | Supertimeline, multi-source timestamp normalization | `worker-plaso` | v0.5 | 📋 |
 | **Sleuth Kit** | Bodyfile / mactime filesystem timeline | `worker-plaso` | v0.5 | 📋 |
 | **capa / FLOSS / pefile** | Malware capabilities, obfuscated strings, PE metadata | `worker-malware` | v0.7 | 📋 |

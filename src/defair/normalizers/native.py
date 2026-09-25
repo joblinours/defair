@@ -338,3 +338,28 @@ class IisNativeNormalizer(BaseNormalizer):
             "record_key": f"{row.get('_source_file', '')}#{row.get('line_number')}",
             **ctx,
         }
+
+
+class StringsNativeNormalizer(BaseNormalizer):
+    """One summary artifact per extracted source (the strings stay in the TSV index)."""
+
+    @property
+    def tool_name(self) -> str:
+        return "strings_native"
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        if row.get("skipped"):
+            _skip(self, f"{row.get('source')}: {row['skipped']}")
+            return None
+        return {
+            "artifact_type": "windows.strings.extract",
+            "category": ArtifactCategory.OTHER,
+            "source_tool": "strings_native",
+            "source_file": row.get("origin", ""),
+            "timestamp": None,
+            "description": f"{row.get('strings', 0)} strings from {row.get('source')} "
+                           f"(ASCII {row.get('ascii', 0)}, UTF-16 {row.get('utf16', 0)})",
+            "data": {k: v for k, v in row.items() if not k.startswith("_")},
+            "record_key": f"strings#{row.get('origin')}",
+            **ctx,
+        }

@@ -220,6 +220,14 @@ async def _run_action(ctx: StepContext, step: Step) -> dict:
     if step.action == "timeline_summary":
         summary = await timeline_service.build_timeline(ctx.conn, ctx.case_id)
         return {"timeline": summary}
+    if step.action == "host_profile":
+        from defair.services.host_profile_service import build_host_profile
+
+        if not ctx.evidence_id:
+            raise StepSkipped("no evidence to profile")
+        profile = await build_host_profile(ctx.conn, ctx.case_id, ctx.evidence_id)
+        return {"host_profile": profile["summary"], "artifact_number": profile["artifact"],
+                "conflicts": len(profile["conflicts"])}
 
     locations = ctx.locations(step.input)
     if not locations:

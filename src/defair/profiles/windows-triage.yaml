@@ -69,8 +69,12 @@ steps:
     input: base
     options: {mode: all, rule_profile: precise}
     optional: true
+  - id: host_profile
+    action: host_profile
+    needs: [registry, evtx]
+    optional: true
   - id: timeline
     action: timeline_summary
     needs: [evtx, hunt, prefetch, amcache, shimcache, registry, recentfilecache, lnk, mft,
             usnjrnl,
-            tasks, psreadline, mplog, scan]
+            tasks, psreadline, mplog, host_profile, scan]

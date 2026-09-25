@@ -1322,6 +1322,94 @@ async def get_evtx_view(
 
 
 @mcp.tool()
+async def get_host_profile(
+    container: str,
+    case_id: str,
+    evidence_id: str | None = None,
+    refresh: bool = False,
+) -> str:
+    """Host profile of an evidence: hostname, domain, OS build, architecture,
+    timezone, install date, users, IPs, installed applications, network
+    profiles, USB devices, computer names seen in the event logs.
+
+    Every fact carries its source (Dissect, ART-NNN, EVTX); disagreeing
+    sources are listed under "conflicts", never overwritten.
+
+    Args:
+        container: Container name.
+        case_id: Case number, name or ID.
+        evidence_id: Evidence (default: the case's first).
+        refresh: Rebuild it now (after new analyses) instead of the stored one.
+
+    Returns:
+        JSON profile (fields with sources, conflicts, summary, artifact number).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_host_profile", correlation_id=cid, container=container)
+    cmd = ["host", "profile", "--case", case_id, "--json"]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if refresh:
+        cmd.append("--refresh")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_watchlists(container: str) -> str:
+    """List keyword / IOC watchlists: built-in (offensive tools, LOLBins,
+    RMM, exfiltration) and the case's own (/workspace/watchlists/*.yaml).
+
+    Args:
+        container: Container name.
+
+    Returns:
+        JSON list: name, terms count, severity, origin, description.
+    """
+    return await _proxy_defair(container, ["watchlist", "list", "--json"])
+
+
+@mcp.tool()
+async def search_watchlist(
+    container: str,
+    case_id: str,
+    watchlists: list[str] | None = None,
+    terms: list[str] | None = None,
+    scopes: list[str] | None = None,
+    create_findings: bool = False,
+) -> str:
+    """Batch-search watchlists (or ad-hoc terms) across a whole case.
+
+    Scopes: "artifacts" (every normalized artifact — hits point to ART-NNN),
+    "strings" (strings index of pagefile / swapfile / unallocated space),
+    "evidence" (raw collection files, ASCII + UTF-16). ripgrep-backed.
+
+    Args:
+        container: Container name.
+        case_id: Case number, name or ID.
+        watchlists: Watchlist names (default: all when no terms are given).
+        terms: Ad-hoc literal terms (IPs, domains, hashes, file names…).
+        scopes: Subset of artifacts / strings / evidence (default: all).
+        create_findings: Create one finding per term that hit.
+
+    Returns:
+        JSON report: hits per watchlist and term, per scope, first hits,
+        findings created, report path.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="search_watchlist", correlation_id=cid, container=container)
+    cmd = ["watchlist", "search", "--case", case_id, "--json"]
+    for name in watchlists or []:
+        cmd.extend(["--watchlist", name])
+    for term in terms or []:
+        cmd.extend(["--term", term])
+    for scope in scopes or []:
+        cmd.extend(["--scope", scope])
+    if create_findings:
+        cmd.append("--findings")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
 async def build_timeline(container: str, case_id: str) -> str:
     """Build a timeline summary for a forensic case.
 

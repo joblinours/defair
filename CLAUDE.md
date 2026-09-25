@@ -92,6 +92,12 @@ defair-mcp
 - `src/defair/profiles/*.yaml` — built-in analysis profiles (v0.4)
 - `src/defair/tools/dissect_plugin.py` + `normalizers/dissect.py` — Dissect plugins as a parsing engine (v0.4)
 - `engines/orc-decrypt/` — vendored ANSSI orc-decrypt (LGPL-2.1), provides `unstream`
+- `src/defair/tools/ntfs_parse.py`, `indx_native.py`, `logfile_native.py` — NTFS structures, $I30 slack, $LogFile (v0.4.5)
+- `src/defair/tools/*_native.py` — MPLog, PSReadLine, Scheduled Tasks, WebCache, RDP cache, IIS, strings (v0.4.5)
+- `src/defair/tools/chainsaw.py` + `normalizers/chainsaw.py` — Chainsaw on the pinned Sigma store (v0.4.5)
+- `src/defair/data/evtx_views.yaml` + `services/evtx_view_service.py` — typed EVTX views (v0.4.5)
+- `src/defair/services/host_profile_service.py` — host profile, a source per fact (v0.4.5)
+- `src/defair/services/watchlist_service.py` + `data/watchlists/*.yaml` — ripgrep watchlists (v0.4.5)
 - `src/defair/database.py` — SQLite schema, migrations (`PRAGMA user_version`) and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation
 
@@ -106,6 +112,13 @@ defair-mcp
 - **MCP tools**: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`, `scan_yara`, `scan_sigma`
 - **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
 - **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
+
+## v0.4.5
+
+- New EZ Tools: RecentFileCacheParser, SumECmd, bstrings (needs `stdin_tty`), rla; `input: step:<id>` feeds a step with another step's output
+- Native parsers: `indx_native`, `logfile_native`, `mplog_native`, `psreadline_native`, `tasks_native`, `webcache_native`, `rdpcache_native`, `iis_native`, `strings_native`
+- `defair evtx view <name>`, `defair host profile`, `defair watchlist search`, `defair hunt --engine chainsaw`
+- A local time without a zone is kept as text (``*_local``), never passed as a timestamp
 
 ## v0.4.1
 

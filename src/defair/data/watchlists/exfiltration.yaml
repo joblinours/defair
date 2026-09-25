@@ -1,0 +1,16 @@
+name: exfiltration
+description: Data staging / exfiltration tools and cloud storage endpoints
+severity: high
+tags: [attack.exfiltration, attack.collection]
+terms:
+  - rclone
+  - {pattern: 'megasync|mega\.nz|megacmd', regex: true}
+  - {pattern: 'winscp'}
+  - {pattern: 'filezilla'}
+  - {pattern: 'pscp.exe'}
+  - {pattern: 'restic'}
+  - {pattern: 'transfer\.sh|file\.io|gofile\.io|temp\.sh|anonfiles', regex: true}
+  - {pattern: 'pastebin\.com/raw', regex: true}
+  - {pattern: 'dropboxapi|content\.dropboxapi\.com', regex: true}
+  - {pattern: '7z(a|\.exe) .{0,20}-p', regex: true, note: password-protected archive}
+  - {pattern: 'rar(\.exe)? a .{0,20}-hp', regex: true, note: encrypted RAR}

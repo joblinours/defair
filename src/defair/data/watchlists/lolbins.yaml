@@ -1,0 +1,26 @@
+name: lolbins
+description: Living-off-the-land binaries used in suspicious ways (command-line fragments)
+severity: medium
+tags: [attack.defense_evasion, attack.execution]
+terms:
+  - {pattern: 'certutil(\.exe)? .{0,40}-(urlcache|decode|encode)', regex: true}
+  - {pattern: 'bitsadmin(\.exe)? .{0,40}/transfer', regex: true}
+  - {pattern: 'mshta(\.exe)? .{0,20}(http|javascript|vbscript)', regex: true}
+  - {pattern: 'regsvr32(\.exe)? .{0,40}/i:http', regex: true, note: Squiblydoo}
+  - {pattern: 'rundll32(\.exe)? .{0,60}javascript:', regex: true}
+  - {pattern: 'powershell(\.exe)? .{0,40}-(enc|encodedcommand|e) ', regex: true}
+  - {pattern: 'frombase64string'}
+  - {pattern: 'downloadstring|downloadfile|invoke-webrequest|iwr http', regex: true}
+  - {pattern: '-windowstyle hidden|-w hidden', regex: true}
+  - {pattern: 'vssadmin(\.exe)? .{0,20}delete shadows', regex: true, note: shadow copy deletion}
+  - {pattern: 'wmic(\.exe)? .{0,30}shadowcopy delete', regex: true}
+  - {pattern: 'bcdedit(\.exe)? .{0,40}recoveryenabled no', regex: true}
+  - {pattern: 'wbadmin(\.exe)? .{0,20}delete catalog', regex: true}
+  - {pattern: 'wevtutil(\.exe)? .{0,10}(cl|clear-log)', regex: true, note: log clearing}
+  - {pattern: 'ntdsutil(\.exe)? .{0,40}ifm', regex: true, note: NTDS.dit dump}
+  - {pattern: 'reg(\.exe)? save hklm\\(sam|system|security)', regex: true}
+  - {pattern: 'schtasks(\.exe)? .{0,20}/create', regex: true}
+  - {pattern: 'net1? user .{0,40}/add', regex: true}
+  - {pattern: 'net1? localgroup administrators .{0,40}/add', regex: true}
+  - {pattern: 'set-mppreference .{0,40}-disable', regex: true}
+  - {pattern: 'add-mppreference .{0,40}-exclusion', regex: true}

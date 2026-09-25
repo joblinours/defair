@@ -1,0 +1,40 @@
+name: offensive_tools
+description: Offensive security / post-exploitation tools and their tell-tale strings
+severity: high
+tags: [attack.credential_access, attack.lateral_movement]
+terms:
+  - mimikatz
+  - {pattern: 'sekurlsa::', note: mimikatz module}
+  - {pattern: 'lsadump::', note: mimikatz module}
+  - {pattern: 'kerberos::(golden|ptt|list)', regex: true, note: mimikatz module}
+  - rubeus
+  - {pattern: 'asktgt', note: Rubeus / Kekeo}
+  - sharphound
+  - bloodhound
+  - {pattern: 'invoke-mimikatz', note: PowerSploit / Empire}
+  - {pattern: 'invoke-kerberoast'}
+  - {pattern: 'invoke-bloodhound'}
+  - lazagne
+  - procdump
+  - {pattern: 'comsvcs(\.dll)?.{0,40}minidump', regex: true, note: LSASS dump via comsvcs}
+  - nanodump
+  - pypykatz
+  - impacket
+  - {pattern: 'secretsdump'}
+  - {pattern: 'wmiexec'}
+  - {pattern: 'smbexec'}
+  - {pattern: 'psexesvc', note: PsExec service}
+  - cobaltstrike
+  - {pattern: 'beacon.dll|beacon_x64', regex: true, note: Cobalt Strike}
+  - sliver
+  - {pattern: 'metasploit|meterpreter', regex: true}
+  - covenant
+  - {pattern: 'havoc'}
+  - {pattern: 'chisel'}
+  - {pattern: 'ligolo'}
+  - {pattern: 'ngrok'}
+  - {pattern: 'plink.exe'}
+  - {pattern: 'advanced_ip_scanner|advanced ip scanner', regex: true}
+  - {pattern: 'netscan.exe'}
+  - {pattern: 'adfind'}
+  - {pattern: 'nltest /domain_trusts'}

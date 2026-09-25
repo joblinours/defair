@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 ENGINES = ("auto", "ez", "dissect")
-ACTIONS = ("hunt", "scan", "timeline_summary")
+ACTIONS = ("hunt", "scan", "timeline_summary", "host_profile")
 
 
 def step_input(selector: str | None) -> str | None:
@@ -38,7 +38,7 @@ class Step(BaseModel):
 
     id: str
     tool: str | None = None
-    action: Literal["hunt", "scan", "timeline_summary"] | None = None
+    action: Literal["hunt", "scan", "timeline_summary", "host_profile"] | None = None
     # locate selector (the step runs once per location), or "step:<id>" =
     # the output directory of a completed tool step (falls back to
     # ``input_fallback`` when that step produced nothing)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from defair.tools.registry import ToolRegistry, get_default_registry
 
-EXPECTED_TOOLS = 32
+EXPECTED_TOOLS = 33
 
 
 class TestToolRegistry:
