@@ -820,10 +820,17 @@ from defair.normalizers.raijin import RaijinNormalizer
 NORMALIZER_MAP["raijin"] = RaijinNormalizer
 
 # Pure-Python fallback parsers
-from defair.normalizers.native import EvtxNativeNormalizer, LnkNativeNormalizer
+from defair.normalizers.native import (
+    EvtxNativeNormalizer,
+    IndxNativeNormalizer,
+    LnkNativeNormalizer,
+    LogFileNativeNormalizer,
+)
 
 NORMALIZER_MAP["evtx_native"] = EvtxNativeNormalizer
 NORMALIZER_MAP["lnk_native"] = LnkNativeNormalizer
+NORMALIZER_MAP["indx_native"] = IndxNativeNormalizer
+NORMALIZER_MAP["logfile_native"] = LogFileNativeNormalizer
 
 # Dissect plugin records (fallback / engine=dissect)
 from defair.normalizers.dissect import DissectNormalizer

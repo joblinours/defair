@@ -58,5 +58,6 @@ line-length = 100
 "src/defair/normalizers/*" = ["BLE001"]
 "src/defair/tools/base.py" = ["BLE001"]
 "src/defair/tools/prefetch.py" = ["BLE001"]
+"src/defair/tools/*_native.py" = ["BLE001", "S112"]
 # Dissect raises arbitrary exceptions on damaged filesystem entries: skip & go on
 "src/defair/sources/image.py" = ["BLE001", "S110", "S112"]

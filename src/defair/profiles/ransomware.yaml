@@ -32,6 +32,9 @@ steps:
     tool: mftecmd
     input: usnjrnl
     fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
+  - id: logfile
+    tool: logfile_native
+    input: logfile
   - id: recyclebin
     tool: rbcmd
     input: recyclebin
@@ -51,4 +54,4 @@ steps:
     optional: true
   - id: timeline
     action: timeline_summary
-    needs: [evtx, hunt, prefetch, amcache, shimcache, mft, usnjrnl, recyclebin, lnk, srum, scan]
+    needs: [evtx, hunt, prefetch, amcache, shimcache, mft, usnjrnl, logfile, recyclebin, lnk, srum, scan]

@@ -81,6 +81,14 @@ steps:
     input: usnjrnl
     options: {mft_path: $mft}
     fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
+  - id: logfile
+    tool: logfile_native
+    input: logfile
+  - id: indx_slack
+    tool: indx_native
+    input: target
+    optional: true
+    description: deleted / renamed file names carved from $I30 slack (disk images)
   - id: ual
     tool: sumecmd
     input: sum_dir
@@ -93,4 +101,4 @@ steps:
   - id: timeline
     action: timeline_summary
     needs: [evtx, hunt, prefetch, amcache, shimcache, registry, recentfilecache, userassist, lnk,
-            jumplists, shellbags, recyclebin, srum, wintimeline, browsers, mft, usnjrnl, ual, scan]
+            jumplists, shellbags, recyclebin, srum, wintimeline, browsers, mft, usnjrnl, logfile, indx_slack, ual, scan]

@@ -18,6 +18,7 @@ Selectors (the ``input`` of a profile step):
 ``amcache``             Amcache.hve
 ``prefetch_dir``        directories holding .pf files
 ``mft`` / ``usnjrnl``   $MFT / $UsnJrnl:$J
+``logfile``             $LogFile (NTFS transaction journal)
 ``recyclebin``          ``$Recycle.Bin``
 ``srum``                SRUDB.dat
 ``activities``          ActivitiesCache.db files
@@ -45,6 +46,7 @@ ROOT_PATHS: dict[str, list[tuple[str, ...]]] = {
     "amcache": [("Windows", "AppCompat", "Programs", "Amcache.hve")],
     "prefetch_dir": [("Windows", "Prefetch")],
     "mft": [("$MFT",)],
+    "logfile": [("$LogFile",)],
     "usnjrnl": [("$Extend", "$J"), ("$Extend", "$UsnJrnl%3A$J"), ("$Extend", "$UsnJrnl:$J")],
     "recyclebin": [("$Recycle.Bin",)],
     "srum": [("Windows", "System32", "sru", "SRUDB.dat")],
@@ -140,6 +142,8 @@ def locate_artifacts(base: str | Path, root: str | Path | None = None) -> dict[s
             _add(found, "lnk_files", path)
         elif kind == "mft" and name in ("$mft", "mft"):
             _add(found, "mft", path)
+        elif name == "$logfile":
+            _add(found, "logfile", path)
 
     # A directory already covered by a parent entry is redundant for -d tools
     for selector in ("evtx_dir", "prefetch_dir"):

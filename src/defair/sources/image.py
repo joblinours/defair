@@ -23,6 +23,7 @@ log = structlog.get_logger(component="sources.image")
 # Registry transaction logs (.LOG1/.LOG2) come along so dirty hives can be replayed.
 WINDOWS_TARGETS: tuple[str, ...] = (
     "$MFT",
+    "$LogFile",
     "$Extend/$UsnJrnl:$J",
     "Windows/System32/winevt/Logs/*.evtx",
     "Windows/System32/config/SYSTEM*",

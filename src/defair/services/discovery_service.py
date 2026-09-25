@@ -12,6 +12,7 @@ Runs INSIDE the container.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 from pathlib import Path
 
 import structlog
@@ -23,7 +24,8 @@ WINDOWS_ARTIFACTS = {
     # NTFS
     "$MFT": {"type": "mft", "tool": "mftecmd", "description": "NTFS Master File Table"},
     "$J": {"type": "usn_journal", "tool": "mftecmd", "description": "NTFS USN Journal"},
-    "$LogFile": {"type": "ntfs_logfile", "tool": None, "description": "NTFS Transaction Log"},
+    "$LogFile": {"type": "ntfs_logfile", "tool": "logfile_native", "description": "NTFS Transaction Log"},
+    "$I30": {"type": "ntfs_i30", "tool": "indx_native", "description": "NTFS directory index (INDX slack)"},
 
     # Event Logs
     "*.evtx": {"type": "evtx", "tool": "evtxecmd", "description": "Windows Event Logs"},
@@ -72,6 +74,20 @@ WINDOWS_ARTIFACTS = {
     "Login Data": {"type": "browser_sqlite", "tool": "sqlecmd", "description": "Browser Saved Logins"},
     "places.sqlite": {"type": "browser_sqlite", "tool": "sqlecmd", "description": "Firefox History/Bookmarks"},
     "cookies.sqlite": {"type": "browser_sqlite", "tool": "sqlecmd", "description": "Firefox Cookies"},
+
+    # v0.4.5 — extra Windows artefacts
+    "RecentFileCache.bcf": {"type": "recentfilecache", "tool": "recentfilecacheparser",
+                            "description": "RecentFileCache (Windows 7 program execution)"},
+    "Current.mdb": {"type": "ual", "tool": "sumecmd", "description": "User Access Logging (Windows Server)"},
+    "SystemIdentity.mdb": {"type": "ual", "tool": "sumecmd", "description": "User Access Logging identity"},
+    "MPLog-*.log": {"type": "defender_mplog", "tool": "mplog_native", "description": "Microsoft Defender MPLog"},
+    "ConsoleHost_history.txt": {"type": "psreadline", "tool": "psreadline_native",
+                                "description": "PowerShell command history (PSReadLine)"},
+    "WebCacheV01.dat": {"type": "webcache", "tool": "webcache_native",
+                        "description": "IE / Edge legacy WebCache (history, downloads, cookies)"},
+    "bcache*.bmc": {"type": "rdp_cache", "tool": "rdpcache_native", "description": "RDP bitmap cache"},
+    "cache????.bin": {"type": "rdp_cache", "tool": "rdpcache_native", "description": "RDP bitmap cache"},
+    "u_ex*.log": {"type": "iis_log", "tool": "iis_native", "description": "IIS W3C access log"},
 
     # Thumbcache
     "thumbcache_*.db": {"type": "thumbcache", "tool": None, "description": "Thumbcache database"},
@@ -213,12 +229,7 @@ def _identify_file(path: Path) -> list[dict]:
 
 
 def _matches_pattern(filename: str, pattern: str) -> bool:
-    """Simple glob-like matching for artifact patterns."""
-    if pattern.startswith("*"):
-        return filename.lower().endswith(pattern[1:].lower())
-    if pattern.endswith("*"):
-        return filename.startswith(pattern[:-1])
-    if "*" in pattern:
-        prefix, suffix = pattern.split("*", 1)
-        return filename.startswith(prefix) and filename.endswith(suffix)
-    return filename == pattern
+    """Glob matching for artifact patterns (``*`` / ``?``, case-insensitive)."""
+    if not any(c in pattern for c in "*?["):
+        return filename == pattern
+    return fnmatch.fnmatch(filename.lower(), pattern.lower())

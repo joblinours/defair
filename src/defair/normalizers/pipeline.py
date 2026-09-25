@@ -248,6 +248,8 @@ async def normalize_run(
     stats["errors"] = normalizer.stats.get("errors", 0)
     for reason, n in (normalizer.stats.get("error_reasons") or {}).items():
         stats["reasons"][reason] = stats["reasons"].get(reason, 0) + n
+    for reason, n in (normalizer.stats.get("skip_reasons") or {}).items():
+        stats["reasons"][f"skipped: {reason}"] = stats["reasons"].get(f"skipped: {reason}", 0) + n
 
     seen: set[str] = set()
     artifacts = []

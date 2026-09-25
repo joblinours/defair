@@ -102,9 +102,11 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.evtx_native import EvtxNativeTool
     from defair.tools.evtxecmd import EvtxECmdTool
     from defair.tools.hayabusa import HayabusaTool
+    from defair.tools.indx_native import IndxNativeTool
     from defair.tools.jlecmd import JLECmdTool
     from defair.tools.lecmd import LECmdTool
     from defair.tools.lnk_native import LnkNativeTool
+    from defair.tools.logfile_native import LogFileNativeTool
     from defair.tools.mftecmd import MFTECmdTool
     from defair.tools.prefetch import PrefetchTool
     from defair.tools.raijin import RaijinTool
@@ -143,6 +145,8 @@ def get_default_registry() -> ToolRegistry:
         SumECmdTool,
         BstringsTool,
         RlaTool,
+        IndxNativeTool,
+        LogFileNativeTool,
     ]:
         registry.register(tool_cls())
 

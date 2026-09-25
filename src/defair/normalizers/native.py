@@ -78,3 +78,81 @@ class LnkNativeNormalizer(BaseNormalizer):
             },
             **ctx,
         }
+
+
+def _skip(normalizer: BaseNormalizer, reason: str, n: int = 1) -> None:
+    reasons = normalizer.stats.setdefault("skip_reasons", {})
+    reasons[reason] = reasons.get(reason, 0) + n
+
+
+def _join(directory: str | None, name: str) -> str:
+    if not directory:
+        return name
+    return f"{directory.rstrip('/').rstrip(chr(92))}\\{name}"
+
+
+class IndxNativeNormalizer(BaseNormalizer):
+    """``$I30`` slack entries → windows.ntfs.indx_slack artifacts."""
+
+    @property
+    def tool_name(self) -> str:
+        return "indx_native"
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        path = _join(row.get("directory"), row["name"])
+        data = {k: v for k, v in row.items() if not k.startswith("_")}
+        data["path"] = path
+        return {
+            "artifact_type": "windows.ntfs.indx_slack",
+            "category": ArtifactCategory.DELETED_FILE,
+            "source_tool": "indx_native",
+            "source_file": row.get("_source_file", ""),
+            "timestamp": row.get("created"),
+            "timestamp_desc": "Created ($FN, INDX slack)",
+            "description": f"INDX slack: {path}",
+            "data": data,
+            "record_key": f"{row.get('volume', 0)}:{row.get('directory_entry')}:"
+                          f"{row.get('stream_offset')}",
+            **ctx,
+        }
+
+
+LOGFILE_DESCRIPTIONS = {
+    "file_linked": "name added to a folder",
+    "file_unlinked": "name removed from a folder",
+    "record_initialized": "FILE record created",
+    "record_deallocated": "FILE record freed",
+    "file_name_created": "$FILE_NAME attribute created",
+    "file_name_deleted": "$FILE_NAME attribute removed (rename / delete)",
+}
+
+
+class LogFileNativeNormalizer(BaseNormalizer):
+    """Decoded ``$LogFile`` operations → windows.ntfs.logfile_op artifacts."""
+
+    @property
+    def tool_name(self) -> str:
+        return "logfile_native"
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        operation = row.get("operation")
+        if operation == "_undecoded":
+            for name, n in (row.get("counts") or {}).items():
+                _skip(self, f"$LogFile {name} (not decoded)", n)
+            return None
+        name = row.get("name") or f"<FILE record, parent {row.get('parent_entry')}>"
+        data = {k: v for k, v in row.items() if not k.startswith("_")}
+        return {
+            "artifact_type": "windows.ntfs.logfile_op",
+            "category": ArtifactCategory.DELETED_FILE if operation in (
+                "file_unlinked", "record_deallocated", "file_name_deleted")
+            else ArtifactCategory.FILE_FOLDER_OPENING,
+            "source_tool": "logfile_native",
+            "source_file": row.get("_source_file", ""),
+            "timestamp": row.get("event_time"),
+            "timestamp_desc": row.get("event_time_desc"),
+            "description": f"$LogFile: {name} — {LOGFILE_DESCRIPTIONS.get(operation, operation)}",
+            "data": data,
+            "record_key": f"lsn#{row.get('lsn')}#{operation}",
+            **ctx,
+        }
