@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /dl
 COPY docker/checksums.sha256 docker/write_versions.py ./
 
-ENV EZ_TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd"
+ENV EZ_TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd RecentFileCacheParser SumECmd bstrings rla"
 
 RUN set -eu; \
     for tool in $EZ_TOOLS; do \

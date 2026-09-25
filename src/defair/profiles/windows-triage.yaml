@@ -24,10 +24,21 @@ steps:
     tool: appcompatcacheparser
     input: system_hive
     fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: hives_replay
+    tool: rla
+    input: hives_dir
+    optional: true
+    description: apply .LOG1/.LOG2 to dirty hives (clean copies in the workspace)
   - id: registry
     tool: recmd
-    input: hives_dir
+    input: step:hives_replay
+    input_fallback: hives_dir
+    needs: [hives_replay]
     fallbacks: [{tool: dissect_plugin, plugin: runkeys, input: target}]
+  - id: recentfilecache
+    tool: recentfilecacheparser
+    input: recentfilecache
+    fallbacks: [{tool: dissect_plugin, plugin: recentfilecache, input: target}]
   - id: lnk
     tool: lecmd
     input: users_dir
@@ -36,6 +47,11 @@ steps:
     tool: mftecmd
     input: mft
     fallbacks: [{tool: dissect_plugin, plugin: mft.records, input: target}]
+  - id: usnjrnl
+    tool: mftecmd
+    input: usnjrnl
+    options: {mft_path: $mft}
+    fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
   - id: scan
     action: scan
     input: base
@@ -43,4 +59,5 @@ steps:
     optional: true
   - id: timeline
     action: timeline_summary
-    needs: [evtx, hunt, prefetch, amcache, shimcache, registry, lnk, mft, scan]
+    needs: [evtx, hunt, prefetch, amcache, shimcache, registry, recentfilecache, lnk, mft,
+            usnjrnl, scan]

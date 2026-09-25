@@ -56,6 +56,17 @@ TIMESTAMP_DESC: dict[str, str] = {
     "windows.browser": "Recorded",
     "windows.sqlite": "Recorded",
     "windows.srum": "Recorded",
+    "windows.usn": "USN Record Updated",
+    "windows.ual": "Last Access",
+    "windows.ntfs.indx_slack": "Created ($FN, INDX slack)",
+    "windows.ntfs.logfile": "Recorded ($LogFile)",
+    "windows.defender": "Event Logged",
+    "windows.powershell.history": "Command Run",
+    "windows.scheduled_task": "Task Registered",
+    "windows.rdp": "Cache Modified",
+    "windows.iis": "Request Received",
+    "windows.system": "Recorded",
+    "detection.chainsaw": "Event Logged",
 }
 
 ARTIFACT_COLUMNS = (

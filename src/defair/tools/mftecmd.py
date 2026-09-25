@@ -23,7 +23,7 @@ class MFTECmdTool(BaseTool):
         return ToolManifest(
             name="mftecmd",
             display_name="MFTECmd",
-            allowed_options=["body_file", "json_output"],
+            allowed_options=["body_file", "json_output", "mft_path"],
             vendor="Eric Zimmerman",
             description="NTFS $MFT and $J (USN Journal) parser. Extracts file metadata, timestamps, paths, and resident data.",
             category=ToolCategory.FILESYSTEM,
@@ -48,8 +48,16 @@ class MFTECmdTool(BaseTool):
 
     def build_command(self, input_path: str, output_dir: str, **kwargs) -> list[str]:
         cmd = ["MFTECmd", "-f", input_path, "--csv", output_dir]
+        # $J: the $MFT resolves each record's parent path
+        if kwargs.get("mft_path") and _is_usn(input_path):
+            cmd.extend(["-m", kwargs["mft_path"]])
         if kwargs.get("body_file"):
-            cmd.extend(["--body", output_dir, "--bdl", "C:"])
+            cmd.extend(["--body", output_dir, "--bdl", "C"])
         if kwargs.get("json_output"):
             cmd.extend(["--json", output_dir])
         return cmd
+
+
+def _is_usn(path: str) -> bool:
+    name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name in ("$j", "$usnjrnl%3a$j", "$usnjrnl:$j", "j") or name.endswith("$j")

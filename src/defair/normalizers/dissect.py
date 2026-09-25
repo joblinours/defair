@@ -30,7 +30,7 @@ TYPE_MAP: list[tuple[str, str, ArtifactCategory, tuple[str, ...]]] = [
     ("windows/filesystem/lnk", "windows.lnk.shortcut", ArtifactCategory.FILE_FOLDER_OPENING,
      ("target_path", "lnk_path")),
     ("filesystem/ntfs/mft", "windows.mft.file_entry", ArtifactCategory.OTHER, ("path",)),
-    ("filesystem/ntfs/usnjrnl", "windows.usnjrnl.entry", ArtifactCategory.FILE_FOLDER_OPENING,
+    ("filesystem/ntfs/usnjrnl", "windows.usn.journal_entry", ArtifactCategory.FILE_FOLDER_OPENING,
      ("path", "reason")),
     ("windows/recyclebin", "windows.recyclebin.deleted_item", ArtifactCategory.DELETED_FILE,
      ("path", "source")),

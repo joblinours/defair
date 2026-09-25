@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from defair.tools.registry import ToolRegistry, get_default_registry
 
+EXPECTED_TOOLS = 23
+
 
 class TestToolRegistry:
-    def test_default_registry_has_19_tools(self):
+    def test_default_registry_tool_count(self):
         registry = get_default_registry()
         manifests = registry.list_all()
-        assert len(manifests) == 19
+        assert len(manifests) == EXPECTED_TOOLS
 
     def test_all_tools_have_names(self):
         registry = get_default_registry()
@@ -48,7 +50,7 @@ class TestToolRegistry:
         registry = get_default_registry()
         health = registry.health_check()
         assert isinstance(health, dict)
-        assert len(health) == 19
+        assert len(health) == EXPECTED_TOOLS
         # On dev machines without EZ Tools, all should be False
         assert all(isinstance(v, bool) for v in health.values())
 

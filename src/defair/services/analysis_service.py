@@ -283,6 +283,7 @@ async def _summarize_and_normalize(
         "exit_code": tool_run.exit_code,
         "duration_seconds": tool_run.duration_seconds,
         "output_files": len(tool_run.output_files),
+        "output_path": tool_run.output_path,
         "artifacts_produced": stats.get("normalized", 0),
         "normalization": {k: v for k, v in stats.items() if k != "files"},
     }

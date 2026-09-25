@@ -23,6 +23,8 @@ class MFTECmdNormalizer(BaseNormalizer):
         return "mftecmd"
 
     def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        if "UpdateReasons" in row or "UpdateTimestamp" in row:
+            return self._usn_row(row, **ctx)
         return {
             "artifact_type": "windows.mft.file_entry",
             "category": ArtifactCategory.OTHER,
@@ -57,6 +59,47 @@ class MFTECmdNormalizer(BaseNormalizer):
             },
             **ctx,
         }
+
+
+    def _usn_row(self, row: dict[str, Any], **ctx) -> dict[str, Any]:
+        """``$J`` output: one row per USN record."""
+        parent = row.get("ParentPath") or ""
+        name = row.get("Name") or ""
+        path = f"{parent.rstrip(chr(92))}\\{name}" if parent else name
+        reasons = row.get("UpdateReasons", "")
+        artifact = {
+            "artifact_type": "windows.usn.journal_entry",
+            "category": _usn_category(reasons),
+            "source_tool": "mftecmd",
+            "source_file": row.get("SourceFile", ""),
+            "timestamp": parse_timestamp(row.get("UpdateTimestamp")),
+            "timestamp_desc": "USN Record Updated",
+            "description": f"{path} [{reasons}]",
+            "data": {
+                "name": name,
+                "extension": row.get("Extension", ""),
+                "parent_path": parent,
+                "entry_number": row.get("EntryNumber"),
+                "sequence_number": row.get("SequenceNumber"),
+                "parent_entry": row.get("ParentEntryNumber"),
+                "parent_sequence": row.get("ParentSequenceNumber"),
+                "update_sequence_number": row.get("UpdateSequenceNumber"),
+                "update_reasons": reasons,
+                "file_attributes": row.get("FileAttributes", ""),
+                "offset": row.get("OffsetToData"),
+            },
+            **ctx,
+        }
+        if row.get("UpdateSequenceNumber"):
+            artifact["record_key"] = f"usn#{row['UpdateSequenceNumber']}"
+        return artifact
+
+
+def _usn_category(reasons: str) -> ArtifactCategory:
+    lower = (reasons or "").lower()
+    if "filedelete" in lower:
+        return ArtifactCategory.DELETED_FILE
+    return ArtifactCategory.FILE_FOLDER_OPENING
 
 
 def classify_evtx(event_id: Any, channel: str | None) -> dict:
@@ -522,33 +565,226 @@ class SQLECmdNormalizer(BaseNormalizer):
         return ArtifactCategory.OTHER
 
 
+# SrumECmd output file (name fragment) → (artifact type, category, timestamp desc)
+SRUM_FILES: list[tuple[str, str, ArtifactCategory]] = [
+    ("appresourceuseinfo", "windows.srum.app_resource_usage", ArtifactCategory.PROGRAM_EXECUTION),
+    ("apptimelineprovider", "windows.srum.app_timeline", ArtifactCategory.PROGRAM_EXECUTION),
+    ("networkusages", "windows.srum.network_usage", ArtifactCategory.NETWORK_ACTIVITY),
+    ("networkconnections", "windows.srum.network_connectivity", ArtifactCategory.NETWORK_ACTIVITY),
+    ("energyusage", "windows.srum.energy_usage", ArtifactCategory.SYSTEM_INFO),
+    ("pushnotification", "windows.srum.push_notification", ArtifactCategory.OTHER),
+    ("vfuprov", "windows.srum.app_timeline", ArtifactCategory.PROGRAM_EXECUTION),
+]
+
+
 class SrumECmdNormalizer(BaseNormalizer):
-    """Normalize SrumECmd CSV output."""
+    """Normalize SrumECmd CSV output (one CSV per SRUM table)."""
 
     @property
     def tool_name(self) -> str:
         return "srumecmd"
 
+    def _kind(self) -> tuple[str, ArtifactCategory]:
+        name = self.current_file.lower()
+        for fragment, artifact_type, category in SRUM_FILES:
+            if fragment in name:
+                return artifact_type, category
+        return "windows.srum.generic", ArtifactCategory.OTHER
+
     def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
-        return {
-            "artifact_type": "windows.srum.network_usage",
-            "category": ArtifactCategory.NETWORK_ACTIVITY,
-            "source_tool": "srumecmd",
-            "source_file": "SRUDB.dat",
-            "timestamp": parse_timestamp(row.get("Timestamp")),
-            "username": row.get("UserName", row.get("UserId")),
-            "description": f"SRUM: {row.get('ExeInfo', row.get('AppId', ''))}",
-            "data": {
-                "exe_info": row.get("ExeInfo", ""),
-                "app_id": row.get("AppId", ""),
-                "user_sid": row.get("UserId", ""),
-                "user_name": row.get("UserName", ""),
+        artifact_type, category = self._kind()
+        exe = row.get("ExeInfo") or row.get("AppId") or ""
+        data = {
+            "exe_info": row.get("ExeInfo", ""),
+            "app_id": row.get("AppId", ""),
+            "user_sid": row.get("UserId", row.get("Sid", "")),
+            "user_name": row.get("UserName", ""),
+            "table": self.current_file,
+        }
+        if artifact_type == "windows.srum.network_usage":
+            data.update({
                 "bytes_sent": row.get("BytesSent"),
                 "bytes_received": row.get("BytesRecvd"),
                 "interface_luid": row.get("InterfaceLuid", ""),
                 "profile_id": row.get("ProfileId"),
                 "l2_profile_flags": row.get("L2ProfileFlags"),
+            })
+        else:
+            data.update({k: v for k, v in row.items() if k not in data and v not in (None, "")})
+        return {
+            "artifact_type": artifact_type,
+            "category": category,
+            "source_tool": "srumecmd",
+            "source_file": "SRUDB.dat",
+            "timestamp": parse_timestamp(row.get("Timestamp")),
+            "username": row.get("UserName") or row.get("UserId") or None,
+            "description": f"SRUM: {exe}",
+            "data": data,
+            **ctx,
+        }
+
+
+class RecentFileCacheNormalizer(BaseNormalizer):
+    """Normalize RecentFileCacheParser CSV output (entries carry no timestamp)."""
+
+    @property
+    def tool_name(self) -> str:
+        return "recentfilecacheparser"
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        path = row.get("Filename") or row.get("FileName") or ""
+        if not path:
+            return None
+        return {
+            "artifact_type": "windows.recentfilecache.entry",
+            "category": ArtifactCategory.PROGRAM_EXECUTION,
+            "source_tool": "recentfilecacheparser",
+            "source_file": row.get("SourceFile", ""),
+            "timestamp": None,
+            "description": f"RecentFileCache: {path}",
+            "data": {
+                "path": path,
+                # the cache file's own times — not the execution time of the entry
+                "cache_created": parse_timestamp(row.get("SourceCreated")),
+                "cache_modified": parse_timestamp(row.get("SourceModified")),
+                "cache_accessed": parse_timestamp(row.get("SourceAccessed")),
             },
+            **ctx,
+        }
+
+
+class SumECmdNormalizer(BaseNormalizer):
+    """Normalize SumECmd CSV output (UAL clients, roles, DNS, VMs)."""
+
+    @property
+    def tool_name(self) -> str:
+        return "sumecmd"
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        name = self.current_file.lower()
+        source = row.get("SourceFile", "")
+        if "_summary_" in name or "clientsdetailed" in name:
+            return None  # role / chained-db inventories; per-day copies of Clients
+        if "_clients_" in name:
+            user = row.get("AuthenticatedUserName") or None
+            client = row.get("IpAddress") or row.get("ClientName") or ""
+            return {
+                "artifact_type": "windows.ual.client_access",
+                "category": ArtifactCategory.ACCOUNT_USAGE,
+                "source_tool": "sumecmd",
+                "source_file": source,
+                "timestamp": parse_timestamp(row.get("LastAccess")),
+                "timestamp_desc": "Last Access",
+                "username": user,
+                "description": f"UAL: {user or '?'} from {client} → {row.get('RoleDescription', '')}",
+                "data": {
+                    "role_guid": row.get("RoleGuid", ""),
+                    "role": row.get("RoleDescription", ""),
+                    "user": user,
+                    "ip_address": row.get("IpAddress", ""),
+                    "client_name": row.get("ClientName", ""),
+                    "total_accesses": row.get("TotalAccesses"),
+                    "first_seen": parse_timestamp(row.get("InsertDate")),
+                    "last_access": parse_timestamp(row.get("LastAccess")),
+                    "tenant_id": row.get("TenantId", ""),
+                },
+                **ctx,
+            }
+        if "roleaccesses" in name:
+            return {
+                "artifact_type": "windows.ual.role_access",
+                "category": ArtifactCategory.SYSTEM_INFO,
+                "source_tool": "sumecmd",
+                "source_file": source,
+                "timestamp": parse_timestamp(row.get("LastSeen")),
+                "timestamp_desc": "Last Seen",
+                "description": f"UAL role: {row.get('RoleDescription', row.get('RoleGuid', ''))}",
+                "data": {
+                    "role_guid": row.get("RoleGuid", ""),
+                    "role": row.get("RoleDescription", ""),
+                    "first_seen": parse_timestamp(row.get("FirstSeen")),
+                    "last_seen": parse_timestamp(row.get("LastSeen")),
+                },
+                **ctx,
+            }
+        if "dnsinfo" in name:
+            return {
+                "artifact_type": "windows.ual.dns",
+                "category": ArtifactCategory.NETWORK_ACTIVITY,
+                "source_tool": "sumecmd",
+                "source_file": source,
+                "timestamp": parse_timestamp(row.get("LastSeen")),
+                "timestamp_desc": "Last Seen",
+                "description": f"UAL DNS: {row.get('HostName', '')} = {row.get('Address', '')}",
+                "data": {"hostname": row.get("HostName", ""), "address": row.get("Address", ""),
+                         "last_seen": parse_timestamp(row.get("LastSeen"))},
+                **ctx,
+            }
+        if "vminfo" in name:
+            return {
+                "artifact_type": "windows.ual.virtual_machine",
+                "category": ArtifactCategory.SYSTEM_INFO,
+                "source_tool": "sumecmd",
+                "source_file": source,
+                "timestamp": parse_timestamp(row.get("LastSeenActive")),
+                "timestamp_desc": "Last Seen Active",
+                "description": f"UAL VM: {row.get('VmGuid', '')}",
+                "data": {"vm_guid": row.get("VmGuid", ""), "bios_guid": row.get("BiosGuid", ""),
+                         "serial_number": row.get("SerialNumber", ""),
+                         "created": parse_timestamp(row.get("CreationTime")),
+                         "last_seen_active": parse_timestamp(row.get("LastSeenActive"))},
+                **ctx,
+            }
+        return None
+
+
+class BstringsNormalizer(BaseNormalizer):
+    """Normalize bstrings output: ``<string>\t0x<offset> (A|U)`` per line."""
+
+    @property
+    def tool_name(self) -> str:
+        return "bstrings"
+
+    def normalize_directory(self, output_dir, **context) -> list[dict[str, Any]]:
+        from pathlib import Path
+
+        artifacts = []
+        for path in sorted(Path(output_dir).glob("*.txt")):
+            self.current_file = path.name
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                for index, line in enumerate(fh):
+                    line = line.rstrip("\r\n")
+                    if not line:
+                        continue
+                    self.stats["rows_read"] += 1
+                    art = self.normalize_row({"line": line}, **context)
+                    if art is None:
+                        self.stats["skipped"] += 1
+                        continue
+                    art["record_key"] = f"{path.name}#{index}"
+                    artifacts.append(art)
+        return artifacts
+
+    def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
+        value, _, suffix = row["line"].rpartition("\t")
+        offset, encoding = None, None
+        if value and suffix.startswith("0x"):
+            raw_offset, _, enc = suffix.partition(" ")
+            try:
+                offset = int(raw_offset, 16)
+            except ValueError:
+                value = row["line"]
+            encoding = {"(A)": "ascii", "(U)": "utf-16le"}.get(enc.strip(), enc.strip() or None)
+        else:
+            value = row["line"]
+        return {
+            "artifact_type": "windows.strings.match",
+            "category": ArtifactCategory.OTHER,
+            "source_tool": "bstrings",
+            "source_file": self.input_path or "",
+            "timestamp": None,
+            "description": value[:300],
+            "data": {"string": value, "offset": offset, "encoding": encoding},
             **ctx,
         }
 
@@ -568,6 +804,9 @@ NORMALIZER_MAP: dict[str, type[BaseNormalizer]] = {
     "wxtcmd": WxTCmdNormalizer,
     "sqlecmd": SQLECmdNormalizer,
     "srumecmd": SrumECmdNormalizer,
+    "recentfilecacheparser": RecentFileCacheNormalizer,
+    "sumecmd": SumECmdNormalizer,
+    "bstrings": BstringsNormalizer,
 }
 
 # Register Hayabusa normalizer (detection tool, separate module)

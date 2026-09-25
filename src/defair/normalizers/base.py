@@ -31,6 +31,9 @@ class BaseNormalizer(ABC):
     #: what the tool processed (set by the pipeline) — lets normalizers
     #: resolve reported paths to real files
     input_path: str | None = None
+    #: name of the output file being normalized (lets a normalizer tell
+    #: apart the several CSVs one tool writes)
+    current_file: str = ""
 
     @property
     def stats(self) -> dict:
@@ -77,6 +80,7 @@ class BaseNormalizer(ABC):
             log.warning("normalizer_file_not_found", file=str(path))
             return []
 
+        self.current_file = path.name
         rows = self._read_file(path)
         artifacts = []
         stats = self.stats

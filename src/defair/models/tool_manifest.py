@@ -63,6 +63,9 @@ class ToolManifest(BaseModel):
     fallback: str | None = None
     # Exit codes meaning "ran fine" (e.g. scanners exit 2 when they match)
     success_exit_codes: list[int] = Field(default_factory=lambda: [0])
+    # Tools that read their data from stdin when it is not a terminal
+    # (bstrings): run with a pseudo-terminal as stdin
+    stdin_tty: bool = False
     # Keyword options a caller (CLI --option / MCP run_tool) may pass
     allowed_options: list[str] = Field(default_factory=list)
 

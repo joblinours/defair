@@ -32,7 +32,7 @@ import structlog
 from defair.database import db_lock
 from defair.orchestrator.dag import StepResult, execute
 from defair.orchestrator.profile import ENGINES, auto_profile, load_profile
-from defair.orchestrator.steps import StepContext, run_step
+from defair.orchestrator.steps import StepContext, record_outputs, run_step
 
 log = structlog.get_logger(component="orchestrator.runs")
 
@@ -385,6 +385,9 @@ async def execute_run(
                           prepared=prepared, engine=data["engine"],
                           output_base=str(workspace() / "analysis"))
         previous = {s["id"]: s for s in data["steps"]} if resume else None
+        for step_id, prev in (previous or {}).items():
+            if prev.get("status") == "completed":
+                record_outputs(ctx, step_id, prev)
 
         async def on_update(current: dict[str, StepResult]) -> None:
             await _update(conn, data["id"], steps=[r.to_dict() for r in current.values()])

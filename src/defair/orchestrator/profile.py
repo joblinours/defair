@@ -13,6 +13,13 @@ ENGINES = ("auto", "ez", "dissect")
 ACTIONS = ("hunt", "scan", "timeline_summary")
 
 
+def step_input(selector: str | None) -> str | None:
+    """``step:<id>`` → ``<id>`` (the step reads another step's output)."""
+    if selector and selector.startswith("step:"):
+        return selector.removeprefix("step:")
+    return None
+
+
 class Fallback(BaseModel):
     """An alternative tool tried when the step's tool fails."""
 
@@ -32,7 +39,11 @@ class Step(BaseModel):
     id: str
     tool: str | None = None
     action: Literal["hunt", "scan", "timeline_summary"] | None = None
-    input: str = "root"  # locate selector; the step runs once per location
+    # locate selector (the step runs once per location), or "step:<id>" =
+    # the output directory of a completed tool step (falls back to
+    # ``input_fallback`` when that step produced nothing)
+    input: str = "root"
+    input_fallback: str | None = None
     options: dict = Field(default_factory=dict)  # "$selector" → first path of that selector
     needs: list[str] = Field(default_factory=list)
     timeout: float | None = None  # seconds
@@ -73,6 +84,12 @@ class Profile(BaseModel):
             missing = set(step.needs) - known
             if missing:
                 raise ValueError(f"profile '{self.name}': step '{step.id}' needs unknown {missing}")
+            source = step_input(step.input)
+            if source and source not in step.needs:
+                raise ValueError(
+                    f"profile '{self.name}': step '{step.id}' reads the output of "
+                    f"'{source}', which must be listed in its needs"
+                )
         _topological_order(self.steps)  # raises on cycles
         return self
 

@@ -21,7 +21,7 @@ import aiosqlite
 import structlog
 
 from defair.orchestrator.dag import StepFailed, StepSkipped
-from defair.orchestrator.profile import Fallback, Step
+from defair.orchestrator.profile import Fallback, Step, step_input
 from defair.tools.registry import ToolRegistry, get_default_registry
 
 log = structlog.get_logger(component="orchestrator.steps")
@@ -49,8 +49,13 @@ class StepContext:
     engine: str = "auto"
     output_base: str = "/workspace/analysis"
     registry: ToolRegistry = field(default_factory=get_default_registry)
+    #: step id → output directories of its completed tool runs
+    step_outputs: dict[str, list[str]] = field(default_factory=dict)
 
     def locations(self, selector: str) -> list[str]:
+        source = step_input(selector)
+        if source is not None:
+            return [p for p in self.step_outputs.get(source, []) if _has_files(p)]
         if selector == "target":
             # Dissect needs a filesystem (image or collection), not loose logs
             if self.prepared.get("kind") == "logs":
@@ -75,6 +80,19 @@ class StepContext:
         return resolved
 
 
+def _has_files(path: str) -> bool:
+    p = Path(path)
+    return p.is_dir() and any(f.is_file() for f in p.rglob("*"))
+
+
+def record_outputs(ctx: StepContext, step_id: str, detail: dict) -> None:
+    """Remember where a step's tools wrote (inputs of ``step:<id>`` steps)."""
+    paths = [r["output_path"] for r in detail.get("tool_runs", [])
+             if r.get("status") == "completed" and r.get("output_path")]
+    if paths:
+        ctx.step_outputs[step_id] = paths
+
+
 def _candidates(step: Step, engine: str) -> list[Fallback]:
     primary = Fallback(tool=step.tool, options=dict(step.options))
     chain = [primary, *step.fallbacks]
@@ -96,6 +114,12 @@ async def run_step(ctx: StepContext, step: Step) -> dict:
     candidates = _candidates(step, ctx.engine)
     uses_step_input = [c for c in candidates if not c.input]
     locations = ctx.locations(step.input) if uses_step_input else []
+    input_note = None
+    if uses_step_input and not locations and step.input_fallback:
+        locations = ctx.locations(step.input_fallback)
+        if locations:
+            input_note = f"'{step.input}' produced nothing: used '{step.input_fallback}'"
+            log.warning("step_input_fallback", step=step.id, detail=input_note)
     # The artifact is absent: nothing to parse — unless Dissect is asked to
     # look for it itself in the original target
     if uses_step_input and not locations and ctx.engine != "dissect":
@@ -136,6 +160,9 @@ async def run_step(ctx: StepContext, step: Step) -> dict:
         "artifacts": sum(r.get("artifacts", 0) for r in runs if r["status"] == "completed"),
         "used": sorted({r["tool"] for r in runs if r["status"] == "completed"}),
     }
+    if input_note:
+        detail["warning"] = input_note
+    record_outputs(ctx, step.id, detail)
     if not runs:
         raise StepSkipped(f"no applicable input for '{step.id}'")
     if all(r["status"] == "unavailable" for r in runs):
@@ -178,6 +205,7 @@ async def _run_tool(ctx: StepContext, candidate: Fallback, target: str, step: St
     record.update(
         status=status,
         run_number=result["run_number"],
+        output_path=result.get("output_path"),
         artifacts=result.get("artifacts_produced", 0),
         duration_seconds=result.get("duration_seconds"),
     )

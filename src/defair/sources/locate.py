@@ -22,6 +22,8 @@ Selectors (the ``input`` of a profile step):
 ``srum``                SRUDB.dat
 ``activities``          ActivitiesCache.db files
 ``lnk_files``           loose .lnk files (outside Users)
+``recentfilecache``     RecentFileCache.bcf (Windows 7)
+``sum_dir``             ``Windows/System32/LogFiles/Sum`` (UAL, Windows Server)
 ======================  =====================================================
 """
 
@@ -46,6 +48,8 @@ ROOT_PATHS: dict[str, list[tuple[str, ...]]] = {
     "usnjrnl": [("$Extend", "$J"), ("$Extend", "$UsnJrnl%3A$J"), ("$Extend", "$UsnJrnl:$J")],
     "recyclebin": [("$Recycle.Bin",)],
     "srum": [("Windows", "System32", "sru", "SRUDB.dat")],
+    "recentfilecache": [("Windows", "AppCompat", "Programs", "RecentFileCache.bcf")],
+    "sum_dir": [("Windows", "System32", "LogFiles", "Sum")],
 }
 
 
@@ -126,6 +130,10 @@ def locate_artifacts(base: str | Path, root: str | Path | None = None) -> dict[s
                 _add(found, "software_hive", path)
         elif kind == "ese" and name == "srudb.dat":
             _add(found, "srum", path)
+        elif kind == "ese" and name.endswith(".mdb"):
+            _add(found, "sum_dir", path.parent)  # UAL: Current.mdb, {GUID}.mdb
+        elif name == "recentfilecache.bcf":
+            _add(found, "recentfilecache", path)
         elif kind == "sqlite" and name == "activitiescache.db":
             _add(found, "activities", path)
         elif kind == "lnk" and not _under(path, found.get("users_dir", [])):

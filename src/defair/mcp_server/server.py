@@ -936,6 +936,70 @@ async def analyze_srum(
     cmd = ["analyze", "srumecmd", input_path, "--case", case_id]
     if evidence_id:
         cmd.extend(["--evidence", evidence_id])
+    if registry_hive:
+        cmd.extend(["--option", f"registry_hive={registry_hive}"])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_usn(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    mft_path: str | None = None,
+) -> str:
+    """Analyze the NTFS USN journal ($Extend/$UsnJrnl:$J) with MFTECmd.
+
+    Every file creation, rename, data overwrite, security change and deletion
+    the journal still holds (days to weeks on a busy volume), with the update
+    reasons — ransomware mass renames, tool drops and cleanup show up here.
+
+    Args:
+        container: Container name.
+        input_path: Path to the $J file inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        mft_path: Path to the $MFT, to resolve each record's parent folder.
+
+    Returns:
+        Analysis result (artifact type windows.usn.journal_entry).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_usn", correlation_id=cid, container=container)
+
+    cmd = ["analyze", "mftecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if mft_path:
+        cmd.extend(["--option", f"mft_path={mft_path}"])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def analyze_ual(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+) -> str:
+    """Analyze User Access Logging databases (Windows Server) with SumECmd.
+
+    UAL keeps up to three years of "which client IP / user reached which
+    server role" (file server, RDP, IIS, DHCP…) with first / last access and
+    access counts — key evidence of lateral movement towards a server.
+
+    Args:
+        container: Container name.
+        input_path: The Sum directory (Windows/System32/LogFiles/Sum).
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+
+    Returns:
+        Analysis result (windows.ual.client_access, role_access, dns, virtual_machine).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_ual", correlation_id=cid, container=container)
+
+    cmd = ["analyze", "sumecmd", input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
     return await _proxy_defair(container, cmd)
 
 

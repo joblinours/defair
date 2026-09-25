@@ -31,6 +31,8 @@ WINDOWS_TARGETS: tuple[str, ...] = (
     "Windows/System32/config/SECURITY*",
     "Windows/System32/config/DEFAULT*",
     "Windows/AppCompat/Programs/Amcache.hve*",
+    "Windows/AppCompat/Programs/RecentFileCache.bcf",
+    "Windows/System32/LogFiles/Sum/*",
     "Windows/Prefetch/*.pf",
     "Windows/System32/sru/SRUDB.dat",
     "Windows/System32/Tasks/**",

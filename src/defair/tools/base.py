@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -167,9 +168,11 @@ class BaseTool(ABC):
         # stream it to a file: record streams can be far larger than memory.
         start = time.monotonic()
         stdout_fh = (out / m.stdout_file).open("wb") if m.stdout_file else None
+        tty_fds = os.openpty() if m.stdin_tty else None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=tty_fds[1] if tty_fds else asyncio.subprocess.DEVNULL,
                 stdout=stdout_fh or asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=m.cwd if m.cwd and Path(m.cwd).is_dir() else None,
@@ -217,6 +220,8 @@ class BaseTool(ABC):
 
         if stdout_fh and not stdout_fh.closed:
             stdout_fh.close()
+        for fd in tty_fds or ():
+            os.close(fd)
 
         # Finalize timing
         elapsed = time.monotonic() - start
