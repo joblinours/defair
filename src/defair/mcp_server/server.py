@@ -1445,12 +1445,17 @@ async def search_timeline(
     severity: str | None = None,
     source_tool: str | None = None,
     limit: int = 50,
+    artifact_type: str | None = None,
+    sources: str | None = None,
+    parser: str | None = None,
+    offset: int = 0,
 ) -> str:
     """Search the forensic timeline with filters.
 
-    Query across all artifacts ordered by timestamp. Supports
-    text search and filtering by time range, host, user, category,
-    severity, and source tool.
+    One timeline over every artifact and the supertimeline events (Plaso,
+    Sleuth Kit bodyfile), ordered by timestamp. Supports text search and
+    filtering by time range, host, user, category, severity, source tool,
+    artifact / Plaso data type and parser.
 
     Args:
         container: Container name.
@@ -1462,11 +1467,15 @@ async def search_timeline(
         username: Filter by username.
         category: Filter by SANS category (e.g. "account_usage").
         severity: Filter by severity (critical, high, medium, low, informational).
-        source_tool: Filter by tool (e.g. "hayabusa", "evtxecmd").
+        source_tool: Filter by tool (e.g. "hayabusa", "evtxecmd", "plaso", "tsk").
         limit: Max results (default 50).
+        artifact_type: Artifact type / Plaso data type contains (e.g. "windows.evtx", "fs:stat").
+        sources: "artifacts", "plaso", "tsk" — comma separated (default all).
+        parser: Plaso parser (e.g. "winevtx", "prefetch") or "fls".
+        offset: Skip the first N results (paging).
 
     Returns:
-        Timeline events matching the filters, ordered chronologically.
+        Timeline events matching the filters, ordered chronologically (JSON).
     """
     cid = new_correlation_id()
     log.info("mcp_tool_called", tool="search_timeline", correlation_id=cid,
@@ -1489,6 +1498,12 @@ async def search_timeline(
         cmd.extend(["--severity", severity])
     if source_tool:
         cmd.extend(["--tool", source_tool])
+    for flag, value in (("--type", artifact_type), ("--sources", sources), ("--parser", parser)):
+        if value:
+            cmd.extend([flag, value])
+    if offset:
+        cmd.extend(["--offset", str(offset)])
+    cmd.append("--json")
     return await _proxy_defair(container, cmd)
 
 
@@ -1946,8 +1961,10 @@ async def resume_run(container: str, run: str, password: str | None = None,
 async def export_timeline(
     container: str, case_id: str, format: str = "timesketch",
     output_path: str | None = None,
+    sources: str | None = None,
 ) -> str:
-    """Export a case timeline to a file inside the container workspace.
+    """Export a case timeline to a file inside the container workspace
+    (artifacts + supertimeline events, streamed, no row limit).
 
     Args:
         container: Container name.
@@ -1955,6 +1972,7 @@ async def export_timeline(
         format: "timesketch" (JSONL with message / datetime / timestamp_desc,
                 importable into Timesketch), "jsonl" or "csv".
         output_path: Destination (default /workspace/timeline/).
+        sources: "artifacts", "plaso", "tsk" — comma separated (default all).
 
     Returns:
         Export result (path, event count).
@@ -1964,7 +1982,92 @@ async def export_timeline(
     cmd = ["timeline", "export", "--case", case_id, "--format", format]
     if output_path:
         cmd.extend(["--output", output_path])
+    if sources:
+        cmd.extend(["--sources", sources])
     return await _proxy_defair(container, cmd)
+
+
+# ---------------------------------------------------------------------------
+# Supertimeline (v0.5) — worker jobs started from the host
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def build_supertimeline(
+    container: str,
+    case_id: str,
+    evidence_id: str,
+    mode: str = "plaso",
+    parsers: str | None = None,
+    timezone: str | None = None,
+    overwrite: bool = False,
+    psort_filter: str | None = None,
+) -> str:
+    """Build a supertimeline of an evidence in a dedicated worker (Plaso + Sleuth Kit).
+
+    Returns immediately with a RUN-NNN; follow it with get_supertimeline_status
+    (which imports the events into the case timeline when the job ends).
+    The .plaso storage of an evidence is reused (only psort runs again) when
+    it was built with the same parsers and time zone, unless overwrite.
+
+    Args:
+        container: Case container name.
+        case_id: Case number, name or ID.
+        evidence_id: Evidence (EVD-NNN).
+        mode: "plaso", "bodyfile" (Sleuth Kit fls, disk images), "both",
+            "unallocated" (strings of unallocated space, for search_watchlist) or "all".
+        parsers: Plaso parsers / preset (default: automatic).
+        timezone: Time zone of sources without one (default UTC).
+        overwrite: Rebuild the .plaso storage.
+        psort_filter: psort event filter expression (e.g. "date > '2024-01-01'").
+
+    Returns:
+        JSON: run number, plan (reuse decision, steps), worker job.
+    """
+    import json
+
+    from defair.services import supertimeline_host
+
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="build_supertimeline", correlation_id=cid, container=container)
+    result = await supertimeline_host.start(
+        container, case_id, evidence_id, _config.workers, _config.container, mode=mode,
+        parsers=parsers, timezone=timezone, overwrite=overwrite, psort_filter=psort_filter)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.tool()
+async def get_supertimeline_status(container: str, run_number: str) -> str:
+    """State of a supertimeline job; imports its events into the case once finished.
+
+    Args:
+        container: Case container name.
+        run_number: RUN-NNN returned by build_supertimeline.
+
+    Returns:
+        JSON: job state, runner steps (exit codes, durations), import result
+        (events per source, strings indexes).
+    """
+    import json
+
+    from defair.services import supertimeline_host
+
+    return json.dumps(await supertimeline_host.status(container, run_number), indent=2, default=str)
+
+
+@mcp.tool()
+async def cancel_supertimeline(container: str, run_number: str) -> str:
+    """Stop a running supertimeline job (what it produced is still imported).
+
+    Args:
+        container: Case container name.
+        run_number: RUN-NNN of the job.
+    """
+    import json
+
+    from defair.services import supertimeline_host
+
+    return json.dumps(await supertimeline_host.cancel(container, run_number), indent=2)
 
 
 @mcp.tool()

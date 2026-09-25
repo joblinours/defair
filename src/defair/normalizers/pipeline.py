@@ -307,3 +307,130 @@ async def _store_run(conn, run: dict, artifacts: list[dict], stats: dict,
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as fh:
         return [json.loads(line) for line in fh if line.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Supertimeline events (Plaso, Sleuth Kit) — streamed into ``timeline_events``
+# ---------------------------------------------------------------------------
+
+TIMELINE_COLUMNS = (
+    "id", "case_id", "evidence_id", "run_id", "timestamp", "timestamp_desc", "message",
+    "source", "parser", "source_short", "source_long", "filename", "hostname", "username",
+    "data", "provenance", "record_key",
+)
+_TIMELINE_JSON = {"data", "provenance"}
+TIMELINE_ARTIFACT_PREFIX = "timeline."  # normalized_files.artifact_type of event files
+
+
+def enrich_event(event: dict, run: dict, stats: dict, seen_keys: set[str]) -> dict:
+    """Envelope of one timeline event: UTC time (never invented), id, provenance."""
+    provenance = {
+        "tool": run["tool_name"], "tool_version": run.get("tool_version"),
+        "run_id": run["id"], "run_number": run["run_number"],
+        "evidence_id": run.get("evidence_id"), **(event.get("provenance") or {}),
+    }
+    raw = event.get("timestamp")
+    iso, error = to_utc_iso(raw)
+    if error:
+        stats["timestamp_unparsed"] += 1
+        _reason(stats, f"timestamp: {error.split(':')[0]}")
+        provenance["raw_timestamp"] = str(raw)
+    event["timestamp"] = iso
+    if not iso:
+        event["timestamp_desc"] = None
+    key = str(event.get("record_key") or f"auto#{stats['normalized']}")
+    base_key, n = key, 1
+    while key in seen_keys:
+        n += 1
+        key = f"{base_key}~{n}"
+    seen_keys.add(key)
+    event.update(record_key=key, provenance=provenance, id=artifact_id(run["id"], key),
+                 run_id=run["id"], case_id=run["case_id"],
+                 evidence_id=event.get("evidence_id") or run.get("evidence_id"))
+    return event
+
+
+def timeline_row(event: dict) -> tuple:
+    return tuple(
+        json.dumps(event.get(c) or {}) if c in _TIMELINE_JSON else event.get(c)
+        for c in TIMELINE_COLUMNS
+    )
+
+
+async def insert_timeline_batch(conn: aiosqlite.Connection, events: list[dict]) -> None:
+    sql = (f"INSERT OR IGNORE INTO timeline_events ({', '.join(TIMELINE_COLUMNS)}) "
+           f"VALUES ({', '.join('?' * len(TIMELINE_COLUMNS))})")
+    await conn.executemany(sql, [timeline_row(e) for e in events])
+
+
+async def stream_timeline_events(
+    conn: aiosqlite.Connection,
+    run: dict,
+    events: Iterable[dict],
+    source: str,
+    jsonl_path: Path,
+    batch_size: int = BATCH_SIZE,
+) -> dict:
+    """Insert timeline events of one run in batches, writing the normalized JSONL.
+
+    Memory stays bounded whatever the number of events: rows are enriched,
+    written to the JSONL and inserted batch by batch. Events already stored
+    for this run and source are replaced (re-import).
+    """
+    stats = new_stats()
+    seen: set[str] = set()
+    await conn.execute("PRAGMA synchronous = NORMAL")
+    await conn.execute("DELETE FROM timeline_events WHERE run_id = ? AND source = ?", (run["id"], source))
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    batch: list[dict] = []
+    with jsonl_path.open("w", encoding="utf-8") as fh:
+        for event in events:
+            stats["rows_read"] += 1
+            if event is None:
+                stats["skipped"] += 1
+                continue
+            event = enrich_event(event, run, stats, seen)
+            line = json.dumps(event, default=str, sort_keys=True) + "\n"
+            fh.write(line)
+            digest.update(line.encode("utf-8"))
+            batch.append(event)
+            stats["normalized"] += 1
+            if len(batch) >= batch_size:
+                await insert_timeline_batch(conn, batch)
+                batch = []
+        if batch:
+            await insert_timeline_batch(conn, batch)
+    sha = digest.hexdigest()
+    artifact_type = f"{TIMELINE_ARTIFACT_PREFIX}{source}"
+    await conn.execute("DELETE FROM normalized_files WHERE run_id = ? AND artifact_type = ?",
+                       (run["id"], artifact_type))
+    await conn.execute(
+        """INSERT INTO normalized_files
+        (id, run_id, case_id, artifact_type, path, sha256, records, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (uuid4().hex, run["id"], run["case_id"], artifact_type, str(jsonl_path), sha,
+         stats["normalized"], datetime.now(UTC).isoformat()),
+    )
+    await conn.commit()
+    await conn.execute("PRAGMA synchronous = FULL")
+    stats["files"] = [{"path": str(jsonl_path), "records": stats["normalized"], "sha256": sha}]
+    log.info("timeline_events_imported", run=run["run_number"], source=source,
+             events=stats["normalized"], timestamp_unparsed=stats["timestamp_unparsed"])
+    return stats
+
+
+def iter_jsonl(path: Path) -> Iterable[dict]:
+    """Stream a JSONL file (for files too large to load at once)."""
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                yield json.loads(line)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

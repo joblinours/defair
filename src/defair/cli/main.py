@@ -22,6 +22,7 @@ from defair.cli.rules import rules_group
 from defair.cli.runs import profile_group, run_group
 from defair.cli.scan import scan_group
 from defair.cli.search import search_cmd
+from defair.cli.supertimeline import supertimeline_group
 from defair.cli.timeline import timeline_group
 from defair.cli.tools_cli import (
     analyze_cmd,
@@ -183,3 +184,4 @@ cli.add_command(run_group)
 cli.add_command(evtx_group)
 cli.add_command(host_group)
 cli.add_command(watchlist_group)
+cli.add_command(supertimeline_group)

@@ -98,6 +98,11 @@ defair-mcp
 - `src/defair/data/evtx_views.yaml` + `services/evtx_view_service.py` — typed EVTX views (v0.4.5)
 - `src/defair/services/host_profile_service.py` — host profile, a source per fact (v0.4.5)
 - `src/defair/services/watchlist_service.py` + `data/watchlists/*.yaml` — ripgrep watchlists (v0.4.5)
+- `src/defair/services/worker_service.py` — worker job containers, started on the HOST (v0.5)
+- `src/defair/services/supertimeline_service.py` / `supertimeline_host.py` — Plaso / TSK jobs: prepare + import (case container) / start + status (host) (v0.5)
+- `src/defair/workers/` — code run inside worker images: job runner, TSK helpers, strings, check (v0.5)
+- `src/defair/normalizers/plaso.py`, `bodyfile.py` — streamed timeline events (v0.5)
+- `docker/worker-plaso.Dockerfile`, `worker-plaso.requirements.txt` (hashes), `worker-plaso.checksums.sha256` (v0.5)
 - `src/defair/database.py` — SQLite schema, migrations (`PRAGMA user_version`) and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation
 
@@ -112,6 +117,13 @@ defair-mcp
 - **MCP tools**: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`, `scan_yara`, `scan_sigma`
 - **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
 - **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
+
+## v0.5
+
+- **Supertimeline**: `defair -c <case container> supertimeline start --case X --evidence EVD-001 --mode plaso|bodyfile|both|unallocated|all`, then `supertimeline status RUN-NNN` (imports when done)
+- Worker images run as host-started jobs (`workers:` config, pinned tags); job specs are argv lists; the runner (`defair.workers.entry`) is standard-library only
+- Timeline events go to `timeline_events` (no ART-NNN), streamed via `pipeline.stream_timeline_events`; never load a whole events file in memory
+- `timeline search/export --sources artifacts,plaso,tsk`; exports are streamed, no row limit
 
 ## v0.4.5
 

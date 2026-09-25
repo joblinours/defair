@@ -191,7 +191,7 @@ Available MCP tools:
 | **Detection & Hunting** *(v0.3)* | |
 | `hunt_evtx` | Run Hayabusa Sigma detection on EVTX |
 | `build_timeline` | Build unified timeline summary |
-| `search_timeline` | Search/filter timeline with multi-criteria |
+| `search_timeline` | Search/filter the timeline (artifacts + Plaso / Sleuth Kit events) |
 | `list_findings` | List investigation findings |
 | `search_ioc` | Search IOC across all artifacts |
 | **Scanning & rules** *(v0.3.7)* | |
@@ -214,6 +214,10 @@ Available MCP tools:
 | `list_evtx_views` / `get_evtx_view` | Typed EVTX views (logons, services, RDP, PowerShell…) |
 | `get_host_profile` | Host profile with a source per fact |
 | `list_watchlists` / `search_watchlist` | Keyword / IOC watchlists over artifacts, strings, raw files |
+| **Supertimeline** *(v0.5)* | |
+| `build_supertimeline` | Plaso / Sleuth Kit job in the `worker-plaso` image (returns a RUN-NNN) |
+| `get_supertimeline_status` | Job state; imports the events into the timeline when finished |
+| `cancel_supertimeline` | Stop a supertimeline job |
 | **Normalization & export** *(v0.3.8)* | |
 | `export_timeline` | Export the timeline (Timesketch JSONL, JSONL, CSV) |
 | `normalize_replay` | Rebuild a case's artifacts from its normalized JSONL |
@@ -507,13 +511,35 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - MCP: `analyze_usn`, `analyze_ual`, `hunt_chainsaw`, `list_evtx_views`, `get_evtx_view`, `get_host_profile`, `list_watchlists`, `search_watchlist`
 - *Not yet:* hiberfil decompression (v0.8), JumpList pure-Python fallback
 
-### 📋 v0.5 — Supertimeline
+### ✅ v0.5 — Supertimeline
 
-- **Plaso** (log2timeline + psort) in a dedicated `worker-plaso` image
-- **Sleuth Kit** bodyfile (`fls` → mactime) for fast filesystem timelines
-- Plaso events imported into the Timeline Engine (same schema as EZ Tools / Hayabusa events, with source provenance)
-- Incremental runs: existing `.plaso` storage reused unless `--overwrite`
-- MCP: `build_supertimeline`, `search_timeline` extended to Plaso sources
+**Worker images** — heavy engines out of the main image
+
+- `workers:` in `defair.yaml` (image pinned by version tag — `latest` is refused — plus memory / CPU / PIDs / timeout)
+- The case container has no Docker socket: the **host** starts a short-lived job container next to it (`services/worker_service.py`) with the case container's evidence (read-only, same paths) and workspace mounts — never `/keys` — and the same hardening, network always `none`
+- The job is `/workspace/jobs/<RUN>/job.json`, written by the case container: argv lists only, never a shell; `python -m defair.workers.entry` runs it, writes `status.json` after every step, logs to the case log (`docker logs` shows the job); SIGTERM kills the running tool and records `cancelled`
+- CI builds a matrix of images: `ghcr.io/joblinours/defair` and `ghcr.io/joblinours/defair-worker-plaso`, each checked after publication (`python -m defair.workers.check`)
+
+**`worker-plaso` image** (`docker/worker-plaso.Dockerfile`)
+
+- **Plaso 20260720** and all 73 Python dependencies installed with `pip --require-hashes` from `docker/worker-plaso.requirements.txt`
+- **The Sleuth Kit 4.15.0** + **libewf-legacy 20140816** compiled from tarballs pinned in `docker/worker-plaso.checksums.sha256` (E01 / Ex01 read directly); no compiler in the runtime image
+
+**Jobs** — `defair supertimeline start --case X --evidence EVD-001 --mode plaso|bodyfile|both|unallocated|all`
+
+- `plaso`: `log2timeline` into `/workspace/plaso/<EVD>.plaso`, then `psort -o json_line`. The storage is **reused** (only psort runs again) when it was built from the same evidence hash with the same parsers and time zone and still matches its recorded SHA-256; built differently → refused unless `--overwrite`; a half-built storage is deleted
+- `bodyfile` (disk images): `mmls`, then `fls -r -m` per partition — the filesystem type is tried explicitly (`-f ntfs`, `fat`, `ext`…, the `mmls` description first) instead of TSK's autodetection; the bodyfile is parsed directly (one event per distinct MACB time, like `mactime`, epoch = UTC)
+- `unallocated`: `blkls` per partition streamed into the strings extractor → `/workspace/strings/<EVD>/unallocated-<n>.tsv`, searchable with `search_watchlist`
+
+**Timeline Engine**
+
+- Schema v5: **`timeline_events`** table (no ART-NNN), composite `(case_id, timestamp)` index, **FTS5** index on message + file name
+- Streamed import (bounded memory — 554,138 events of a real Windows 10 E01 imported in 60 s with 173 MiB), normalized JSONL + SHA-256, deterministic ids (re-import replaces), `normalize replay` restores events too, `normalize rerun RUN` re-imports a supertimeline run
+- Timestamps at source precision (Plaso `date_time`: FILETIME keeps 100 ns); Plaso's "not a time" stays `null` with the raw value
+- `timeline summary|search|export` merge artifacts and events in time order: `--sources artifacts,plaso,tsk`, `--parser`, `--type`, `--offset`; text search = LIKE on artifacts, FTS5 phrase on events; **exports are streamed with no row limit** (the former 100,000 cap is gone)
+- `run manifest` per job (`/workspace/jobs/<RUN>/manifest.json`): spec, runner steps, worker image + digest, Plaso / TSK versions, storage reuse and hash, import counts
+- MCP: `build_supertimeline`, `get_supertimeline_status` (imports when the job ends), `cancel_supertimeline`; `search_timeline` / `export_timeline` extended to Plaso and Sleuth Kit sources
+- *Not a profile step:* profile runs execute inside the case container, which cannot start containers — the supertimeline is started from the host (CLI / MCP)
 
 ### 📋 v0.6 — Reporting + REST API
 
@@ -586,8 +612,8 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 | **NTFS native** (dissect.ntfs) | `$I30` slack, `$LogFile`, USN Journal | `defair` | v0.4.5 | ✅ |
 | **Chainsaw** | Second Sigma engine on the pinned rule store | `defair` | v0.4.5 | ✅ |
 | **ripgrep** | Watchlist / IOC batch search | `defair` | v0.4.5 | ✅ |
-| **Plaso** | Supertimeline, multi-source timestamp normalization | `worker-plaso` | v0.5 | 📋 |
-| **Sleuth Kit** | Bodyfile / mactime filesystem timeline | `worker-plaso` | v0.5 | 📋 |
+| **Plaso** | Supertimeline, multi-source timestamp normalization | `worker-plaso` | v0.5 | ✅ |
+| **Sleuth Kit** | Bodyfile filesystem timeline, unallocated space (`blkls`) | `worker-plaso` | v0.5 | ✅ |
 | **capa / FLOSS / pefile** | Malware capabilities, obfuscated strings, PE metadata | `worker-malware` | v0.7 | 📋 |
 | **oletools / Didier Stevens suite / ExifTool** | Office, PDF and metadata triage | `worker-malware` | v0.7 | 📋 |
 | **ClamAV** | AV scanning (pinned offline signatures) | `worker-malware` | v0.7 | 📋 |

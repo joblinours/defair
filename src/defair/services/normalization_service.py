@@ -12,14 +12,22 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
 import aiosqlite
 import structlog
 
-from defair.normalizers.pipeline import bulk_insert, normalize_run, read_jsonl
+from defair.normalizers.pipeline import (
+    BATCH_SIZE,
+    TIMELINE_ARTIFACT_PREFIX,
+    bulk_insert,
+    insert_timeline_batch,
+    iter_jsonl,
+    normalize_run,
+    read_jsonl,
+    sha256_file,
+)
 
 log = structlog.get_logger(component="normalization_service")
 
@@ -59,28 +67,50 @@ async def replay(
         files = [{"path": str(p), "sha256": None} for p in sorted(Path(json_dir).rglob("*.jsonl"))]
     else:
         cursor = await conn.execute(
-            "SELECT path, sha256 FROM normalized_files WHERE case_id = ? ORDER BY path",
+            "SELECT path, sha256, artifact_type FROM normalized_files WHERE case_id = ? ORDER BY path",
             (case_id,),
         )
         files = [dict(r) for r in await cursor.fetchall()]
 
-    loaded, refused, restored = [], [], 0
+    loaded, refused, restored, events = [], [], 0, 0
     for f in files:
         path = Path(f["path"])
         if not path.exists():
             refused.append({"path": str(path), "reason": "missing"})
             continue
-        if f["sha256"] and hashlib.sha256(path.read_bytes()).hexdigest() != f["sha256"]:
+        if f["sha256"] and sha256_file(path) != f["sha256"]:
             refused.append({"path": str(path), "reason": "sha256 mismatch"})
             continue
-        artifacts = [a for a in read_jsonl(path) if a.get("case_id") == case_id]
-        restored += await bulk_insert(conn, artifacts)
+        if (f.get("artifact_type") or "").startswith(TIMELINE_ARTIFACT_PREFIX) \
+                or "/normalized/timeline/" in path.as_posix():
+            events += await _replay_events(conn, path, case_id)
+        else:
+            artifacts = [a for a in read_jsonl(path) if a.get("case_id") == case_id]
+            restored += await bulk_insert(conn, artifacts)
         loaded.append(str(path))
 
     log.info("normalization_replayed", case_id=case_id, files=len(loaded),
-             refused=len(refused), artifacts=restored)
+             refused=len(refused), artifacts=restored, events=events)
     return {"case_id": case_id, "files_loaded": len(loaded), "refused": refused,
-            "artifacts_restored": restored}
+            "artifacts_restored": restored, "timeline_events_restored": events}
+
+
+async def _replay_events(conn: aiosqlite.Connection, path: Path, case_id: str) -> int:
+    """Stream a supertimeline JSONL back into ``timeline_events``."""
+    count, batch = 0, []
+    for event in iter_jsonl(path):
+        if event.get("case_id") != case_id:
+            continue
+        batch.append(event)
+        if len(batch) >= BATCH_SIZE:
+            await insert_timeline_batch(conn, batch)
+            count += len(batch)
+            batch = []
+    if batch:
+        await insert_timeline_batch(conn, batch)
+        count += len(batch)
+    await conn.commit()
+    return count
 
 
 async def rerun(conn: aiosqlite.Connection, run_id_or_number: str) -> dict:
@@ -88,6 +118,12 @@ async def rerun(conn: aiosqlite.Connection, run_id_or_number: str) -> dict:
     from defair.normalizers.eztools import get_normalizer
 
     run = await _resolve_run(conn, run_id_or_number)
+    if run["tool_name"] == "supertimeline":
+        from defair.services.supertimeline_service import import_job
+
+        result = await import_job(conn, run["run_number"], force=True)
+        return {"run_number": run["run_number"], "tool": run["tool_name"],
+                "events": result.get("events"), "stats": result}
     if not run.get("output_path") or not Path(run["output_path"]).exists():
         raise ValueError(f"Raw output of {run['run_number']} not found: {run.get('output_path')}")
     normalizer = get_normalizer(run["tool_name"])

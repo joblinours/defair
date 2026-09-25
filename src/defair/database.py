@@ -119,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_findings_finding_number ON findings(finding_numbe
 # Schema migrations, applied in order on top of SCHEMA_SQL. Each step is
 # idempotent (columns are only added when missing), so databases created by
 # any earlier DEFAIR version upgrade in place.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _MIGRATION_COLUMNS: dict[int, list[tuple[str, str, str]]] = {
     2: [
@@ -176,6 +176,47 @@ CREATE INDEX IF NOT EXISTS idx_profile_runs_case ON profile_runs(case_id);
     4: """
 CREATE INDEX IF NOT EXISTS idx_artifacts_event_id
     ON artifacts(case_id, CAST(json_extract(provenance, '$.event_id') AS INTEGER));
+""",
+    # v0.5 — supertimeline events (Plaso, Sleuth Kit bodyfile): millions of
+    # rows, so no ART-NNN, a composite (case, time) index and full-text search
+    5: """
+CREATE TABLE IF NOT EXISTS timeline_events (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    evidence_id TEXT REFERENCES evidence(id),
+    run_id TEXT NOT NULL REFERENCES tool_runs(id),
+    timestamp TEXT,
+    timestamp_desc TEXT,
+    message TEXT,
+    source TEXT NOT NULL,
+    parser TEXT,
+    source_short TEXT,
+    source_long TEXT,
+    filename TEXT,
+    hostname TEXT,
+    username TEXT,
+    data TEXT DEFAULT '{}',
+    provenance TEXT DEFAULT '{}',
+    record_key TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_timeline_events_case_time ON timeline_events(case_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_timeline_events_source ON timeline_events(case_id, source, parser);
+CREATE INDEX IF NOT EXISTS idx_timeline_events_run ON timeline_events(run_id, record_key);
+CREATE VIRTUAL TABLE IF NOT EXISTS timeline_events_fts USING fts5(
+    message, filename, content='timeline_events', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS timeline_events_ai AFTER INSERT ON timeline_events BEGIN
+    INSERT INTO timeline_events_fts(rowid, message, filename) VALUES (new.rowid, new.message, new.filename);
+END;
+CREATE TRIGGER IF NOT EXISTS timeline_events_ad AFTER DELETE ON timeline_events BEGIN
+    INSERT INTO timeline_events_fts(timeline_events_fts, rowid, message, filename)
+    VALUES ('delete', old.rowid, old.message, old.filename);
+END;
+CREATE TRIGGER IF NOT EXISTS timeline_events_au AFTER UPDATE ON timeline_events BEGIN
+    INSERT INTO timeline_events_fts(timeline_events_fts, rowid, message, filename)
+    VALUES ('delete', old.rowid, old.message, old.filename);
+    INSERT INTO timeline_events_fts(rowid, message, filename) VALUES (new.rowid, new.message, new.filename);
+END;
 """,
 }
 
