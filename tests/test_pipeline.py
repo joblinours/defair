@@ -45,7 +45,8 @@ class TestTimestamps:
     def test_valid(self, raw, expected):
         assert to_utc_iso(raw) == (expected, None)
 
-    @pytest.mark.parametrize("raw", [None, "", "N/A", "0", "1601-01-01 00:00:00"])
+    @pytest.mark.parametrize("raw", [None, "", "N/A", "0", "1601-01-01 00:00:00",
+                                     "1601-01-01T00:00:00+00:00", "1970-01-01T00:00:00Z"])
     def test_empty(self, raw):
         assert to_utc_iso(raw) == (None, None)
 

@@ -586,6 +586,11 @@ from defair.normalizers.native import EvtxNativeNormalizer, LnkNativeNormalizer
 NORMALIZER_MAP["evtx_native"] = EvtxNativeNormalizer
 NORMALIZER_MAP["lnk_native"] = LnkNativeNormalizer
 
+# Dissect plugin records (fallback / engine=dissect)
+from defair.normalizers.dissect import DissectNormalizer
+
+NORMALIZER_MAP["dissect_plugin"] = DissectNormalizer
+
 
 def get_normalizer(tool_name: str) -> BaseNormalizer | None:
     """Get a normalizer instance for a tool."""

@@ -96,6 +96,7 @@ def get_default_registry() -> ToolRegistry:
     """Create and populate the default registry with all known tools."""
     from defair.tools.amcache_parser import AmcacheParserTool
     from defair.tools.appcompat_parser import AppCompatCacheParserTool
+    from defair.tools.dissect_plugin import DissectPluginTool
     from defair.tools.dissect_tool import DissectTool
     from defair.tools.evtx_native import EvtxNativeTool
     from defair.tools.evtxecmd import EvtxECmdTool
@@ -133,6 +134,7 @@ def get_default_registry() -> ToolRegistry:
         RaijinTool,
         EvtxNativeTool,
         LnkNativeTool,
+        DissectPluginTool,
     ]:
         registry.register(tool_cls())
 

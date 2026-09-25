@@ -55,6 +55,8 @@ class ToolManifest(BaseModel):
     command: str = ""  # e.g. "/opt/eztools/MFTECmd" or "python -m dissect"
     runtime: str = "native"  # native, dotnet, python
     timeout: int = 3600  # Default timeout in seconds
+    # Tools that print their results: stdout is streamed to this file
+    stdout_file: str | None = None
     # Registered tool to run instead when this one fails (pure-Python parser)
     fallback: str | None = None
     # Exit codes meaning "ran fine" (e.g. scanners exit 2 when they match)

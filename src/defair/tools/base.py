@@ -85,6 +85,9 @@ class BaseTool(ABC):
         """
         return []
 
+    def check_result(self, tool_run: ToolRun, output_dir: Path) -> None:
+        """Hook: inspect a finished run (e.g. a tool that exits 0 on failure)."""
+
     def is_available(self) -> bool:
         """Check if the tool binary is available on the system."""
         m = self.manifest()
@@ -160,12 +163,14 @@ class BaseTool(ABC):
             _shutil.rmtree(out)
         out.mkdir(parents=True, exist_ok=True)
 
-        # Execute
+        # Execute. Tools whose results come on stdout (manifest.stdout_file)
+        # stream it to a file: record streams can be far larger than memory.
         start = time.monotonic()
+        stdout_fh = (out / m.stdout_file).open("wb") if m.stdout_file else None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=stdout_fh or asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
@@ -182,13 +187,16 @@ class BaseTool(ABC):
                 raise
 
             tool_run.exit_code = proc.returncode
-            tool_run.stdout = stdout_bytes.decode(errors="replace")
-            tool_run.stderr = stderr_bytes.decode(errors="replace")
+            tool_run.stdout = (stdout_bytes or b"").decode(errors="replace")
+            tool_run.stderr = (stderr_bytes or b"").decode(errors="replace")
 
             if proc.returncode in m.success_exit_codes:
                 tool_run.status = ToolRunStatus.COMPLETED
             else:
                 tool_run.status = ToolRunStatus.FAILED
+            if stdout_fh:
+                stdout_fh.close()
+            self.check_result(tool_run, out)
 
         except TimeoutError:
             tool_run.status = ToolRunStatus.TIMEOUT
@@ -205,6 +213,9 @@ class BaseTool(ABC):
             tool_run.status = ToolRunStatus.FAILED
             tool_run.stderr = str(e)
             log.error("tool_run_error", tool=m.name, error=str(e))
+
+        if stdout_fh and not stdout_fh.closed:
+            stdout_fh.close()
 
         # Finalize timing
         elapsed = time.monotonic() - start

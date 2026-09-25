@@ -98,6 +98,11 @@ defair evidence get EVD-001
 
 # Verify evidence integrity (re-hash and compare)
 defair evidence verify EVD-001
+
+# Whole investigation in one command (v0.4): collection folders, archives,
+# Generaptor / DFIR-ORC, disk images — prepared, then a profile runs in the background
+defair run start --case CASE-2026-001 --evidence /evidence/host01.E01 --profile auto
+defair run status PRUN-001
 ```
 
 ### Container orchestration
@@ -192,6 +197,13 @@ Available MCP tools:
 | `scan_evidence` | YARA + Sigma in a single pass |
 | `get_ruleset_info` | Pinned rule sources, installation and integrity status |
 | `list_rule_conflicts` | Duplicate / conflicting rules across sources |
+| **Investigations** *(v0.4)* | |
+| `analyze_evidence` | Path → registered, prepared, profile chosen and run (background) |
+| `prepare_evidence` | Extract / decrypt / carve an evidence (ZIP, Generaptor, DFIR-ORC, disk images) |
+| `list_profiles` / `get_profile` | Analysis profiles and their steps |
+| `run_profile` | Run a profile on an evidence in the background (`PRUN-NNN`) |
+| `get_run_status` / `list_runs` | Follow profile runs (steps, tools, fallbacks, errors) |
+| `cancel_run` / `resume_run` | Stop a run / resume it without re-running completed steps |
 | **Normalization & export** *(v0.3.8)* | |
 | `export_timeline` | Export the timeline (Timesketch JSONL, JSONL, CSV) |
 | `normalize_replay` | Rebuild a case's artifacts from its normalized JSONL |
@@ -392,7 +404,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - Hayabusa kept for `hunt_evtx` timeline enrichment, pinned by version + SHA-256
 - *Deferred:* offline rule updates from a verified bundle (`defair rules update --bundle`) — rules are updated by re-pinning the lock and rebuilding the image
 
-### ✅ v0.3.8 — Preprocessing & normalization pipeline (current)
+### ✅ v0.3.8 — Preprocessing & normalization pipeline
 
 *Inspired by ArtefactProcessor / PyTriage, adapted to DEFAIR's provenance model.*
 
@@ -411,17 +423,28 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - **Not copied from ArtefactProcessor**: lossy `dd/mm/YYYY HH:MM:SS` timestamps, `datetime.now()` substituted for missing times, silently swallowed exceptions
 - *Deferred:* JumpList pure-Python fallback
 
-### 📋 v0.4 — Evidence sources + Orchestration + MCP profiles
+### ✅ v0.4 — Evidence sources + Orchestration + MCP profiles (current)
 
-- **Source auto-detection** in `discover_evidence`: Velociraptor, KAPE (ZIP / VHDX), FastIR, DFIR-ORC (encrypted `.7z.p7b`), Generaptor (encrypted ZIP), UAC (tar) collections, mounted filesystem, disk images (E01/Ex01, raw/dd, VHD/VHDX, VMDK, AFF) with automatic NTFS partition offset
-- **Image access through Dissect** (no FUSE mount, no `SYS_ADMIN`)
-- **Archive evidence**: ZIP collections (with or without password) registered and hashed as-is, extracted into the workspace
-- DAG-based analysis orchestration, bounded parallel workers, per-tool timeout and retry
-- Declarative profiles (`windows-triage`, `windows-full`, `ransomware`, `persistence`, `registry-only`)
-- **Run manifest** — every profile run writes a `run.json` (tools, versions, durations, errors), even on failure
-- CLI: `defair run --case CASE-xxx --profile windows-triage` *(≈ `hecatrace run -v -e`)*
-- MCP: `run_profile`, `analyze_evidence`, `get_run_status`
-- **🎯 Milestone: MVP MCP — an AI agent can conduct a full Windows investigation via MCP**
+**🎯 Milestone: MVP MCP — one call runs a full Windows investigation, whatever the evidence format.**
+
+**Evidence sources** (`src/defair/sources/`)
+
+- **Detection**: KAPE (folder / VHDX), Velociraptor, FastIR, UAC, mounted filesystems, log folders, disk images (E01 / Ex01 / VMDK / VHD / VHDX / QCOW2 / raw), ZIP (plain, ZipCrypto, AES), Generaptor, DFIR-ORC — plus artifacts identified by content (magic bytes) when a collector renamed them
+- **Collection folders** registered as evidence with a tree hash (`verify` detects any added / removed / modified file)
+- **Preparation** (`defair evidence prepare`, MCP `prepare_evidence`): collections used in place, read-only; ZIP extracted (zip-slip and archive-bomb guards, ZIP-in-ZIP); **Generaptor** decrypted (RSA-OAEP + AES); **DFIR-ORC** decrypted with ANSSI's orc-decrypt (vendored in `engines/orc-decrypt/`, LGPL-2.1) + nested 7z; **disk images carved with Dissect** — no mount, no privilege, no partition offset to compute — plus a host profile artifact
+- `manifest.json` records every derived file (origin, size, SHA-256); secrets (archive password, key passphrase) travel through the exec environment, never on a command line, never stored; private keys mounted read-only at `/keys` (`container create --keys`, validated against `container.key_roots`)
+
+**Orchestration** (`src/defair/orchestrator/`, `src/defair/profiles/`)
+
+- Declarative profiles: `windows-triage`, `windows-full`, `ransomware`, `persistence`, `registry-only`, `scan-only`
+- DAG executor: dependencies, bounded parallelism (`orchestrator.max_parallel`), per-step timeout, retry with backoff, optional steps, cancellation (running tools are killed), resume (completed steps kept)
+- **Engines**: `auto` = EZ Tools → pure-Python fallbacks → **Dissect plugins** on the original image / collection; `ez` = no Dissect; `dissect` = Dissect plugins only (`dissect_plugin` tool + generic normalizer, same artifact types as EZ Tools)
+- **Background profile runs** `PRUN-NNN`: detached worker, status / list / cancel / resume, dead-worker detection
+- **`run.json`** written after every step and always at the end — even on failure: DEFAIR version, profile, engine, evidence preparation, each step's tools, pinned versions, fallbacks used, durations, errors, rule lock
+- Concurrency fixes: RUN / ART / FND numbers reserved under a lock (parallel steps collided on `RUN-NNN`)
+- CLI: `defair profile list|show`, `defair run start --case CASE-xxx --evidence EVD-001 --profile windows-triage` *(≈ `hecatrace run -v -e`)*, `defair run status|list|cancel|resume`
+- MCP: `prepare_evidence`, `list_profiles`, `get_profile`, `run_profile`, `analyze_evidence`, `get_run_status`, `list_runs`, `cancel_run`, `resume_run`
+- *Not yet:* Linux disk images (UAC collections are scanned with Raijin only), BitLocker-encrypted volumes
 
 ### 📋 v0.4.5 — Windows coverage completion
 
@@ -503,7 +526,8 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 
 | Engine | Purpose | Worker image | Phase | Status |
 |--------|---------|--------------|-------|--------|
-| **Dissect** | Host discovery, artifact identification, image & filesystem access | `defair` | v0.2 | ✅ |
+| **Dissect** | Image carving without mount (v0.4), plugins as parsing fallback / `engine=dissect` | `defair` | v0.2 / v0.4 | ✅ |
+| **orc-decrypt** (ANSSI) | DFIR-ORC archive decryption | `defair` | v0.4 | ✅ |
 | **EZ Tools** (13) | Windows artifacts (MFT, EVTX, Registry, Amcache, LNK, SRUM, ...) | `defair` | v0.2 | ✅ |
 | **Hayabusa** | EVTX hunting timeline (hayabusa-rules, distinct provenance) | `defair` | v0.3 | ✅ |
 | **YARA** (yara-python) | File pattern matching — replaced by Raijin in v0.3.7 | — | v0.3.5 | ⛔ |

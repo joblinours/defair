@@ -87,6 +87,11 @@ defair-mcp
 - `src/defair/normalizers/evtx_flatten.py` + `src/defair/data/evtx_catalog.yaml` — EVTX flattening + EventID knowledge base (v0.3.8)
 - `src/defair/services/normalization_service.py` — replay / rerun / stats (v0.3.8)
 - `src/defair/tools/native.py`, `evtx_native.py`, `lnk_native.py` — pure-Python fallback parsers (v0.3.8)
+- `src/defair/sources/` — evidence detection, preparation (ZIP / Generaptor / DFIR-ORC / Dissect image carving), artifact location (v0.4)
+- `src/defair/orchestrator/` — profiles, DAG executor, step runner (fallback chains per engine), profile runs + background worker (v0.4)
+- `src/defair/profiles/*.yaml` — built-in analysis profiles (v0.4)
+- `src/defair/tools/dissect_plugin.py` + `normalizers/dissect.py` — Dissect plugins as a parsing engine (v0.4)
+- `engines/orc-decrypt/` — vendored ANSSI orc-decrypt (LGPL-2.1), provides `unstream`
 - `src/defair/database.py` — SQLite schema, migrations (`PRAGMA user_version`) and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation
 
@@ -101,6 +106,12 @@ defair-mcp
 - **MCP tools**: `hunt_evtx`, `build_timeline`, `search_timeline`, `list_findings`, `search_ioc`, `scan_yara`, `scan_sigma`
 - **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
 - **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
+
+## v0.4
+
+- **Investigate**: `defair run start --case CASE-xxx --evidence <EVD-NNN|path> --profile auto|windows-triage|… --engine auto|ez|dissect`, then `defair run status PRUN-NNN`
+- **Prepare**: `defair evidence prepare EVD-NNN [--password] [--private-key /keys/x.pem]`
+- Profile steps: EZ Tools first, native + Dissect plugin fallbacks; add a profile = add a YAML file
 
 ## v0.3.6 → v0.3.8
 
@@ -123,3 +134,5 @@ defair-mcp
 - Artifacts are inserted through the normalization pipeline (`normalize_run` / `bulk_insert`), never row by row
 - MCP never exposes arbitrary shell: `exec_in_container` only exists with `mcp.allow_exec: true`; agents use `run_tool`
 - `external_tool/` holds reference sources and is never committed
+- Secrets (archive passwords, key passphrases) never go on a command line, in logs, in the DB or in run.json: CLI envvars / exec environment / 0600 temp file
+- Parallel DB writes: allocate human-readable numbers under `database.db_lock(conn)`

@@ -25,6 +25,8 @@ _ISO_LIKE = re.compile(
 _SLASH_YMD = re.compile(r"^(\d{4})/(\d{2})/(\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?$")
 
 _FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
+# Zero values emitted as dates by parsers (FILETIME 0, Unix epoch 0)
+_ZERO_TIMES = (datetime(1601, 1, 1, tzinfo=UTC), datetime(1970, 1, 1, tzinfo=UTC))
 _MIN_YEAR, _MAX_YEAR = 1980, 2100  # plausibility window for epoch-style numbers (1970 ≈ a zeroed field)
 
 
@@ -92,6 +94,8 @@ def to_utc_iso(value) -> tuple[str | None, str | None]:
             dt = dt.replace(tzinfo=timezone(sign * offset))
         if dt.year < 1601:
             return None, f"out of range: {text!r}"
+        if dt.astimezone(UTC) in _ZERO_TIMES and not match.group("frac"):
+            return None, None  # zeroed FILETIME / epoch field: "no timestamp"
         frac = (match.group("frac") or "").rstrip("0") or None
         return _format(dt, frac), None
 
