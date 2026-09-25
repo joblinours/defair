@@ -26,6 +26,10 @@ DEFAIR_LABEL = "defair.managed"
 DEFAIR_CASE_LABEL = "defair.case_id"
 DEFAIR_CONTAINER_PREFIX = "defair-"
 DEFAULT_IMAGE = "ghcr.io/joblinours/defair:latest"
+CONTAINER_ENTRY = (
+    "mkdir -p /workspace/logs && touch /workspace/logs/defair.log "
+    "&& exec tail -n 0 -F /workspace/logs/defair.log"
+)
 WORKSPACE_BASE = Path.home() / ".defair" / "workspaces"
 
 
@@ -136,6 +140,24 @@ def validate_evidence_paths(
     return resolved
 
 
+def check_workspace_writable(ws_path: Path) -> None:
+    """The container runs as the host user: every file of the workspace it
+    writes (database, analysis output, logs) must be writable by that user.
+
+    Workspaces created by DEFAIR < 0.3.6 (containers running as root) are not.
+    """
+    blocked = [p for p in (ws_path, ws_path / "defair.db", ws_path / "analysis",
+                           ws_path / "logs", ws_path / "sources")
+               if p.exists() and not os.access(p, os.W_OK)]
+    if blocked:
+        raise PermissionError(
+            f"Workspace {ws_path} is not writable by your user "
+            f"({', '.join(p.name for p in blocked)}) — probably created by an older DEFAIR "
+            f"running as root. Fix it with:  sudo chown -R {os.getuid()}:{os.getgid()} {ws_path}"
+            f"   or use another workspace (--workspace DIR)."
+        )
+
+
 def hardening_kwargs(policy: ContainerConfig) -> dict:
     """Docker ``containers.create`` kwargs isolating a forensic container.
 
@@ -220,6 +242,7 @@ async def create_container(
         # Setup workspace
         ws_path = Path(workspace) if workspace else WORKSPACE_BASE / container_name
         ws_path.mkdir(parents=True, exist_ok=True)
+        check_workspace_writable(ws_path)
 
         # Build volume mounts
         volumes = {
@@ -287,7 +310,9 @@ async def create_container(
             stdin_open=True,
             tty=True,
             detach=True,
-            command="sleep infinity",  # Keep container alive
+            # PID 1 follows the shared log file: every DEFAIR process in the
+            # container writes there, so `docker logs` shows all actions
+            command=["sh", "-c", CONTAINER_ENTRY],
             **hardening_kwargs(policy),
         )
 

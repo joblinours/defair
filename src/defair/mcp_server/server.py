@@ -1002,36 +1002,120 @@ async def list_artifacts(
     case_id: str | None = None,
     category: str | None = None,
     artifact_type: str | None = None,
+    tool: str | None = None,
+    contains: str | None = None,
+    hostname: str | None = None,
+    username: str | None = None,
+    severity: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    run: str | None = None,
+    oldest_first: bool = False,
     limit: int = 50,
+    offset: int = 0,
 ) -> str:
-    """List normalized forensic artifacts in a container.
-
-    Artifacts are normalized outputs from tools, categorized by
-    SANS FOR500 categories.
+    """Search normalized artifacts (JSON, paginated). Use get_artifact for one.
 
     Args:
         container: Container name.
-        case_id: Optional — filter by case.
-        category: Optional — filter by SANS category (e.g. "program_execution").
-        artifact_type: Optional — filter by artifact type (e.g. "windows.evtx").
-        limit: Max results (default 50).
+        case_id: Case number, name or ID.
+        category: SANS category (program_execution, persistence, account_usage…).
+        artifact_type: Type substring (e.g. "evtx.logon", "prefetch").
+        tool: Source tool (evtxecmd, mftecmd, raijin, hayabusa…).
+        contains: Text searched in description, message, path and every data field.
+        hostname / username: Substring filters.
+        severity: Severity filter.
+        since / until: ISO 8601 time bounds.
+        run: Only artifacts of this tool run (RUN-NNN).
+        oldest_first: Chronological order (default newest first).
+        limit / offset: Paging.
 
     Returns:
-        Table of artifacts with type, timestamp, and description.
+        JSON {total, offset, limit, items[]} with full artifact data.
     """
     cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="list_artifacts", correlation_id=cid,
-             container=container)
+    log.info("mcp_tool_called", tool="list_artifacts", correlation_id=cid, container=container)
+    cmd = ["artifacts", "list", "--json", "--limit", str(limit), "--offset", str(offset)]
+    for flag, value in (("--case", case_id), ("--category", category), ("--type", artifact_type),
+                        ("--tool", tool), ("--contains", contains), ("--host", hostname),
+                        ("--user", username), ("--severity", severity), ("--since", since),
+                        ("--until", until), ("--run", run)):
+        if value:
+            cmd.extend([flag, value])
+    if oldest_first:
+        cmd.append("--asc")
+    return await _proxy_defair(container, cmd)
 
-    cmd = ["artifacts", "list"]
+
+@mcp.tool()
+async def get_artifact(
+    container: str,
+    artifact: str,
+    context_minutes: float | None = None,
+    raw: bool = True,
+) -> str:
+    """Deep-inspect one artifact (ART-NNN).
+
+    Returns every field and the full normalized data, provenance (tool, pinned
+    version, RUN-NNN, input), the findings referencing it, the evidence file
+    resolved to its real path, and — for detections — what matched: event
+    (EventID / RecordID / Computer) and field values for Sigma, identifier /
+    value / offset for YARA. With raw=True the complete EVTX event is read
+    from the log, or a hex dump around each YARA match. context_minutes adds
+    the case timeline around the artifact.
+
+    Args:
+        container: Container name.
+        artifact: Artifact number (ART-NNN) or id.
+        context_minutes: Also return artifacts ± this many minutes around it.
+        raw: Read the raw source (EVTX event / YARA hex context).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_artifact", correlation_id=cid, container=container,
+             artifact=artifact)
+    cmd = ["artifacts", "get", artifact, "--json"]
+    if context_minutes:
+        cmd.extend(["--context", str(context_minutes)])
+    if not raw:
+        cmd.append("--no-raw")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def get_finding(container: str, finding: str, case_id: str | None = None) -> str:
+    """One finding with every match explained.
+
+    For each linked artifact: evidence file (real path in the container),
+    event (EventID / RecordID) or offset, and the exact pattern / field
+    values that hit the rule — with the raw EVTX event or YARA hex context.
+    Each rule gives its file in the rule store (see show_rule).
+
+    Args:
+        container: Container name.
+        finding: Finding number (FND-NNN).
+        case_id: Optional case the finding must belong to.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_finding", correlation_id=cid, container=container,
+             finding=finding)
+    cmd = ["findings", "get", finding, "--json"]
     if case_id:
         cmd.extend(["--case", case_id])
-    if category:
-        cmd.extend(["--category", category])
-    if artifact_type:
-        cmd.extend(["--type", artifact_type])
-    cmd.extend(["--limit", str(limit)])
     return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def show_rule(container: str, source: str, path: str) -> str:
+    """Content of a detection rule (YARA / Sigma) from the verified rule store.
+
+    Args:
+        container: Container name.
+        source: Rule source id (e.g. sigmahq_core, yaraforge_full) — from get_finding.
+        path: Rule file path inside that source — from get_finding.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="show_rule", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["rules", "show", source, path])
 
 
 # ---------------------------------------------------------------------------

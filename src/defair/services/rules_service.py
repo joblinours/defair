@@ -74,3 +74,21 @@ def rule_conflicts(store: str | Path | None = None, profile: str | None = None) 
         return {}
     data = json.loads(path.read_text())
     return {profile: data.get(profile, {})} if profile else data
+
+
+def show_rule(source: str, path: str, store: str | Path | None = None) -> dict:
+    """Content of one rule file of the store (``source`` + path inside it)."""
+    from defair.rules.lock import load_lock
+
+    lock = load_lock()
+    try:
+        engine = lock.get(source).engine
+    except KeyError as e:
+        raise ValueError(f"Unknown rule source '{source}'") from e
+    base = (_store(store) / engine / source).resolve()
+    target = (base / path).resolve()
+    if base not in target.parents:
+        raise ValueError("Rule path must stay inside the rule source")
+    if not target.is_file():
+        raise ValueError(f"Rule file not found: {target}")
+    return {"source": source, "engine": engine, "path": str(target), "content": target.read_text(errors="replace")}

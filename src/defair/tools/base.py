@@ -241,6 +241,9 @@ class BaseTool(ABC):
             exit_code=tool_run.exit_code,
             duration=tool_run.duration_seconds,
             output_files=len(tool_run.output_files),
+            output_dir=output_dir,
+            stdout_tail=(tool_run.stdout or "")[-1500:] or None,
+            stderr_tail=(tool_run.stderr or "")[-1500:] or None,
         )
 
         return tool_run

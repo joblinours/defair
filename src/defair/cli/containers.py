@@ -80,7 +80,7 @@ def container_create(
 
 @container_group.command("list")
 @click.option("--all/--running", "all_states", default=True, help="Show all or only running.")
-@click.option("--case", "case_id", default=None, help="Filter by case ID/number.")
+@click.option("--case", "case_id", default=None, help="Filter by case (number, name or ID).")
 def container_list(all_states: bool, case_id: str | None) -> None:
     """List DEFAIR forensic containers."""
 

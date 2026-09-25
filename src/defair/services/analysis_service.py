@@ -193,6 +193,8 @@ async def run_tool(
         raise
 
     tool_run.id = reserved.id
+    # The input is recorded so results can be traced back to real files
+    tool_run.parameters = {**tool_run.parameters, "input_path": input_path}
     await _save_tool_run(conn, tool_run)
     return tool_run
 
@@ -269,6 +271,7 @@ async def _summarize_and_normalize(
                 "tool_name": tool_run.tool_name,
                 "tool_version": tool_run.tool_version,
                 "output_path": tool_run.output_path,
+                "input_path": tool_run.parameters.get("input_path"),
             }, normalizer)
 
     return {

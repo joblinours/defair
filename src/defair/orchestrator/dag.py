@@ -136,6 +136,11 @@ async def execute(
                     await asyncio.sleep(backoff * 2**attempt)
             result.duration_seconds = round(time.monotonic() - start, 3)
             result.completed_at = datetime.now(UTC).isoformat()
+        log.info("step_finished", step=step.id, status=result.status, attempts=result.attempts,
+                 duration=result.duration_seconds, error=result.error,
+                 tools=[(t.get("tool"), t.get("status"), t.get("run_number"))
+                        for t in result.detail.get("tool_runs", [])],
+                 artifacts=result.detail.get("artifacts"))
         await notify()
 
     def settled(step_id: str) -> bool:
@@ -162,6 +167,7 @@ async def execute(
                     continue
                 if cancel_event.is_set():
                     result.status = "cancelled"
+                    log.info("step_finished", step=step.id, status="cancelled")
                     continue
                 if not all(settled(n) for n in step.needs):
                     continue
@@ -169,6 +175,7 @@ async def execute(
                 if failed_need:
                     result.status = "skipped"
                     result.error = f"dependency '{failed_need}' did not complete"
+                    log.info("step_finished", step=step.id, status="skipped", error=result.error)
                     continue
                 running[step.id] = asyncio.create_task(run_one(step))
 

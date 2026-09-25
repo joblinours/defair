@@ -28,6 +28,10 @@ class BaseNormalizer(ABC):
     are assigned by the service layer).
     """
 
+    #: what the tool processed (set by the pipeline) — lets normalizers
+    #: resolve reported paths to real files
+    input_path: str | None = None
+
     @property
     def stats(self) -> dict:
         """Per-normalizer counters: rows read, skipped (filtered), errors."""

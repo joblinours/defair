@@ -67,7 +67,7 @@ def evidence_add(ctx: click.Context, case_id: str, path: str, evidence_type: str
 
 
 @evidence_group.command("list")
-@click.option("--case", "case_id", default=None, help="Filter by case ID or case number.")
+@click.option("--case", "case_id", default=None, help="Filter by case (number, name or ID).")
 @click.pass_context
 def evidence_list(ctx: click.Context, case_id: str | None) -> None:
     """List registered evidence items."""

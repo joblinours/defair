@@ -225,6 +225,13 @@ class RaijinNormalizer(BaseNormalizer):
             m.group(1).upper() for t in tags if (m := _MITRE_TECHNIQUE.match(t))
         })
 
+        from defair.services.artifact_service import explain_match
+
+        # Where the match is, in a form an analyst can open right away
+        located = explain_match({"source_tool": "raijin", "data": {
+            "engine": engine, "rule": rule, "host_path": host_path,
+            "matched_strings": reason.get("matched_strings") or []}}, self.input_path)
+
         return {
             "artifact_type": artifact_type,
             "category": category,
@@ -248,6 +255,11 @@ class RaijinNormalizer(BaseNormalizer):
                 "matched_strings": reason.get("matched_strings") or [],
                 "mitre_techniques": mitre,
                 "host_path": host_path,
+                "scan_root": self.input_path,
+                "evidence_path": located.get("evidence_path"),
+                "event": located.get("event") or {},
+                "matched_fields": located.get("matched_fields") or [],
+                "matched_patterns": located.get("matched_patterns") or [],
                 "file_name": Path(host_path).name,
                 "md5": event.get("md5"),
                 "sha1": event.get("sha1"),

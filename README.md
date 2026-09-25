@@ -171,7 +171,10 @@ Available MCP tools:
 | `list_tools` | List available forensic tools |
 | `tools_health` | Check tool availability in a container |
 | `list_tool_runs` | List past analysis runs |
-| `list_artifacts` | List normalized artifacts from analysis |
+| `list_artifacts` | Search artifacts (text, tool, host, user, time range, run) with paging |
+| `get_artifact` | Deep-inspect one artifact: data, provenance, raw EVTX event / YARA hex, timeline context |
+| `get_finding` | A finding with every match explained (file, event / offset, matched values, rule file) |
+| `show_rule` | Content of a YARA / Sigma rule from the verified store |
 | `analyze_evtx` | Parse Windows Event Logs (EvtxECmd) |
 | `analyze_mft` | Parse NTFS Master File Table (MFTECmd) |
 | `analyze_registry` | Parse Windows Registry hives (RECmd) |
@@ -423,7 +426,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - **Not copied from ArtefactProcessor**: lossy `dd/mm/YYYY HH:MM:SS` timestamps, `datetime.now()` substituted for missing times, silently swallowed exceptions
 - *Deferred:* JumpList pure-Python fallback
 
-### ✅ v0.4 — Evidence sources + Orchestration + MCP profiles (current)
+### ✅ v0.4 — Evidence sources + Orchestration + MCP profiles
 
 **🎯 Milestone: MVP MCP — one call runs a full Windows investigation, whatever the evidence format.**
 
@@ -445,6 +448,17 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - CLI: `defair profile list|show`, `defair run start --case CASE-xxx --evidence EVD-001 --profile windows-triage` *(≈ `hecatrace run -v -e`)*, `defair run status|list|cancel|resume`
 - MCP: `prepare_evidence`, `list_profiles`, `get_profile`, `run_profile`, `analyze_evidence`, `get_run_status`, `list_runs`, `cancel_run`, `resume_run`
 - *Not yet:* Linux disk images (UAC collections are scanned with Raijin only), BitLocker-encrypted volumes
+
+### ✅ v0.4.1 — Investigation ergonomics (from the first real E01 run)
+
+- `--case` accepts the case **name** everywhere (case-insensitive; ambiguous names refused), as well as `CASE-YYYY-NNN` or the id
+- **`findings get`** explains every match: evidence file (real path in the container), event (EventID / RecordID / Computer) or YARA offset, and the **exact field values / pattern that hit the rule**; rule id, rule file and `defair rules show <source> <path>`; `--all`, `--json` (with the raw EVTX event / hex context)
+- **`artifacts get ART-NNN`**: every field and the full data, provenance (tool, pinned version, RUN-NNN, input), linked findings, normalized JSONL, the **complete EVTX event** read back from the log by record id, a **hex dump** around each YARA match, `--context MIN` for the surrounding timeline
+- **`artifacts list`**: `--contains` (any field), `--tool`, `--host`, `--user`, `--severity`, `--since/--until`, `--run`, `--asc`, paging (`--offset`), `--json`
+- **Container logs**: every command (arguments with secrets redacted, output, exit code, duration), tool run (command, exit code, stderr), profile step and finding is logged as JSON to `/workspace/logs/defair.log`; the container's PID 1 follows it, so `docker logs <container>` shows everything. Console logs moved to stderr (stdout carries results only)
+- `container create` refuses a workspace the host user cannot write (created by DEFAIR < 0.3.6 running as root) with the `chown` fix
+- Hayabusa 4.x: `dfir-timeline` syntax, run from `/opt/hayabusa`, abbreviated levels (`crit`, `med`) mapped — critical detections now become findings
+- MCP: `get_artifact`, `get_finding`, `show_rule`; `list_artifacts` gains every filter + paging
 
 ### 📋 v0.4.5 — Windows coverage completion
 

@@ -14,7 +14,7 @@ console = Console()
 
 @click.command("search")
 @click.argument("value")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--limit", default=50, help="Max results.")
 @click.pass_context
 def search_cmd(ctx: click.Context, value: str, case_id: str, limit: int) -> None:

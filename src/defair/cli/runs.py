@@ -98,7 +98,7 @@ def _echo(result: dict, as_json: bool) -> None:
 
 
 @run_group.command("start")
-@click.option("--case", "case_id", required=True, help="Case ID or number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--evidence", "evidence", required=True,
               help="Evidence number (EVD-NNN), or a path to register first.")
 @click.option("--profile", default="auto", show_default=True,

@@ -117,3 +117,24 @@ def rules_sync(dest: Path) -> None:
     for source_id, s in result["sources"].items():
         console.print(f"[green]✓[/green] {source_id:18} {s['ref'][:12]:12} {s['files']:5} files")
     console.print(f"Conflicts: {json.dumps(result['conflicts'])}")
+
+
+@rules_group.command("show")
+@click.argument("source")
+@click.argument("path")
+@click.option("--store", default=None, help="Rule store (default /opt/defair/rules).")
+@click.pass_context
+def rules_show(ctx: click.Context, source: str, path: str, store: str | None) -> None:
+    """Print a rule file, e.g. `defair rules show sigmahq_core rules/…/x.yml`
+    (the exact command is given by `findings get`)."""
+    if _proxy_if_host(ctx, ["rules", "show", source, path]):
+        return
+    from defair.services.rules_service import show_rule
+
+    try:
+        rule = show_rule(source, path, store)
+    except ValueError as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise SystemExit(1)
+    console.print(f"[dim]# {rule['path']}[/dim]", highlight=False)
+    click.echo(rule["content"])

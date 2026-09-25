@@ -359,6 +359,9 @@ async def execute_run(
             if row and row[0] == "cancelling":
                 cancel_event.set()
 
+    log.info("profile_run_started", run=data["run_number"], profile=data["profile"],
+             engine=data["engine"], evidence_id=data["evidence_id"], resume=resume,
+             secrets=sorted(k for k, v in (secrets or {}).items() if v))
     watcher = asyncio.create_task(watch_db())
     prepared: dict | None = None
     results: dict[str, StepResult] = {}
@@ -405,5 +408,7 @@ async def execute_run(
         await _update(conn, data["id"], status=status, error=error,
                       steps=[r.to_dict() for r in results.values()],
                       manifest_path=str(manifest), completed_at=datetime.now(UTC).isoformat())
-    log.info("profile_run_finished", run=data["run_number"], status=status)
+    log.info("profile_run_finished", run=data["run_number"], status=status, error=error,
+             profile=data["profile"], engine=data["engine"],
+             steps={r.id: r.status for r in results.values()})
     return await run_status(conn, data["id"])

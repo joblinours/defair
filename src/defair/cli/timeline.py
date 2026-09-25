@@ -18,7 +18,7 @@ def timeline_group() -> None:
 
 
 @timeline_group.command("summary")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.pass_context
 def timeline_summary(ctx: click.Context, case_id: str) -> None:
     """Show timeline summary for a case."""
@@ -69,7 +69,7 @@ def timeline_summary(ctx: click.Context, case_id: str) -> None:
 
 
 @timeline_group.command("search")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--query", "-q", default=None, help="Text search in description/data.")
 @click.option("--from", "from_time", default=None, help="Start time (ISO 8601).")
 @click.option("--to", "to_time", default=None, help="End time (ISO 8601).")
@@ -171,7 +171,7 @@ def timeline_search(
 
 
 @timeline_group.command("export")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--format", "fmt", default="csv", type=click.Choice(["csv", "jsonl", "timesketch"]), help="Export format (timesketch = Timesketch JSONL).")
 @click.option("--output", "output_path", default=None, help="Output file path.")
 @click.pass_context

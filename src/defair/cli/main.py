@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import io
+import re
+import sys
+import time
+
 import click
 
 from defair import __version__
@@ -24,7 +29,88 @@ from defair.cli.tools_cli import (
     tools_group,
 )
 from defair.config import load_config
-from defair.logging import configure_logging
+from defair.logging import configure_logging, default_log_file, get_logger, redact_argv
+
+MAX_LOGGED_OUTPUT = 16_000  # characters of a command's output kept in the log
+
+
+class _Tee(io.TextIOBase):
+    """Copies what a command prints so its result can be logged too."""
+
+    def __init__(self, stream) -> None:
+        self.stream = stream
+        self.buffer_text: list[str] = []
+        self.size = 0
+
+    def write(self, s) -> int:
+        text = s.decode("utf-8", errors="replace") if isinstance(s, bytes) else s
+        if self.size < MAX_LOGGED_OUTPUT:
+            self.buffer_text.append(text)
+            self.size += len(text)
+        if isinstance(s, bytes):
+            return self.stream.buffer.write(s)
+        return self.stream.write(s)
+
+    @property
+    def buffer(self):
+        return self.stream.buffer
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def isatty(self) -> bool:
+        return self.stream.isatty()
+
+    @property
+    def encoding(self):
+        return getattr(self.stream, "encoding", "utf-8")
+
+    def captured(self) -> str:
+        text = re.sub(r"\x1b\[[0-9;]*m", "", "".join(self.buffer_text))
+        return text[:MAX_LOGGED_OUTPUT]
+
+
+class LoggedGroup(click.Group):
+    """Logs every command: its (redacted) arguments, output, exit code, duration.
+
+    Inside a forensic container these lines go to /workspace/logs/defair.log,
+    which the container's PID 1 follows — so `docker logs` shows every action.
+    """
+
+    def invoke(self, ctx: click.Context):
+        start = time.monotonic()
+        tee = None
+        if default_log_file() and not ctx.resilient_parsing:
+            tee = _Tee(sys.stdout)
+            sys.stdout = tee
+        exit_code, error = 0, None
+        try:
+            return super().invoke(ctx)
+        except click.exceptions.Exit as e:
+            exit_code = e.exit_code
+            raise
+        except SystemExit as e:
+            exit_code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+            raise
+        except click.ClickException as e:
+            exit_code, error = e.exit_code, e.format_message()
+            raise
+        except Exception as e:
+            exit_code, error = 1, f"{type(e).__name__}: {e}"
+            get_logger("cli").exception("cli_command_crashed", argv=redact_argv(sys.argv[1:]))
+            raise
+        finally:
+            if tee is not None:
+                sys.stdout = tee.stream
+            if ctx.obj is not None and "config" in ctx.obj:  # logging configured
+                get_logger("cli").info(
+                    "cli_command_finished",
+                    argv=redact_argv(sys.argv[1:]),
+                    exit_code=exit_code,
+                    error=error,
+                    duration_seconds=round(time.monotonic() - start, 3),
+                    output=tee.captured() if tee else None,
+                )
 
 
 def _is_inside_container() -> bool:
@@ -34,7 +120,7 @@ def _is_inside_container() -> bool:
     return Path("/.dockerenv").exists()
 
 
-@click.group()
+@click.group(cls=LoggedGroup)
 @click.version_option(version=__version__, prog_name="defair")
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Config file path.")
 @click.option("--db", "db_path", type=click.Path(), default=None, help="Override database path.")
@@ -68,6 +154,8 @@ def cli(ctx: click.Context, config_path: str | None, db_path: str | None, contai
     ctx.obj["db_path"] = str(config.storage.database)
     ctx.obj["container"] = container_name
     ctx.obj["inside_container"] = _is_inside_container()
+    get_logger("cli").info("cli_command_started", argv=redact_argv(sys.argv[1:]),
+                           inside_container=ctx.obj["inside_container"])
 
 
 # Register sub-groups

@@ -13,7 +13,7 @@ console = Console()
 
 @click.command("hunt")
 @click.argument("input_path")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--evidence", "evidence_id", default=None, help="Evidence ID.")
 @click.option(
     "--profile", default="standard",

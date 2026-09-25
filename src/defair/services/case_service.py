@@ -76,59 +76,49 @@ async def list_cases(conn: aiosqlite.Connection) -> list[Case]:
     return [_row_to_case(row) for row in rows]
 
 
+async def _find_case_row(conn: aiosqlite.Connection, ref: str) -> aiosqlite.Row | None:
+    """Find a case by UUID, case number (CASE-YYYY-NNN) or name.
+
+    Names match case-insensitively; a name shared by several cases is refused
+    (use the case number) rather than silently picking one.
+    """
+    ref = (ref or "").strip()
+    cursor = await conn.execute(
+        "SELECT * FROM cases WHERE id = ? OR case_number = ?", (ref, ref.upper())
+    )
+    row = await cursor.fetchone()
+    if row is not None:
+        return row
+    cursor = await conn.execute("SELECT * FROM cases WHERE lower(name) = lower(?)", (ref,))
+    rows = await cursor.fetchall()
+    if len(rows) > 1:
+        numbers = ", ".join(r["case_number"] for r in rows)
+        raise ValueError(f"Several cases are named '{ref}' ({numbers}): use the case number")
+    return rows[0] if rows else None
+
+
 async def get_case(
     conn: aiosqlite.Connection,
     case_id_or_number: str,
 ) -> Case | None:
-    """Get a case by its internal ID or human-readable case number.
-
-    Accepts either a UUID hex string or a "CASE-YYYY-NNN" format.
-    """
-    if case_id_or_number.upper().startswith("CASE-"):
-        cursor = await conn.execute(
-            "SELECT * FROM cases WHERE case_number = ?",
-            (case_id_or_number.upper(),),
-        )
-    else:
-        cursor = await conn.execute(
-            "SELECT * FROM cases WHERE id = ?",
-            (case_id_or_number,),
-        )
-
-    row = await cursor.fetchone()
-    if row is None:
-        return None
-    return _row_to_case(row)
+    """Get a case by its internal ID, case number (CASE-YYYY-NNN) or name."""
+    row = await _find_case_row(conn, case_id_or_number)
+    return _row_to_case(row) if row is not None else None
 
 
 async def resolve_case_id(
     conn: aiosqlite.Connection,
     case_id_or_number: str,
 ) -> str:
-    """Resolve a case_number (CASE-YYYY-NNN) or UUID to the internal UUID.
-
-    If already a UUID, validates it exists and returns it.
-    If a case_number, looks it up and returns the UUID.
+    """Resolve a case UUID, case number (CASE-YYYY-NNN) or case name to the UUID.
 
     Raises:
-        ValueError: If the case cannot be found.
+        ValueError: If the case cannot be found (or the name is ambiguous).
     """
-    if case_id_or_number.upper().startswith("CASE-"):
-        cursor = await conn.execute(
-            "SELECT id FROM cases WHERE case_number = ?",
-            (case_id_or_number.upper(),),
-        )
-    else:
-        # Already a UUID — verify it exists
-        cursor = await conn.execute(
-            "SELECT id FROM cases WHERE id = ?",
-            (case_id_or_number,),
-        )
-
-    row = await cursor.fetchone()
+    row = await _find_case_row(conn, case_id_or_number)
     if row is None:
         raise ValueError(f"Case not found: {case_id_or_number}")
-    return row[0]
+    return row["id"]
 
 
 def _row_to_case(row: aiosqlite.Row) -> Case:

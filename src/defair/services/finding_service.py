@@ -78,7 +78,9 @@ async def create_finding(
             now, now,
         ))
 
-    log.info("finding_created", finding_number=finding_number, title=title)
+    log.info("finding_created", finding_number=finding_number, title=title, severity=severity,
+             source=source, case_id=case_id, artifacts=len(artifact_ids or []),
+             mitre_techniques=mitre_techniques or [], detection_refs=detection_refs or [])
     return {
         "id": finding_id,
         "finding_number": finding_number,
@@ -128,12 +130,68 @@ async def get_finding(
     """Get a finding by ID or finding number."""
     cursor = await conn.execute(
         "SELECT * FROM findings WHERE id = ? OR finding_number = ?",
-        (finding_id_or_number, finding_id_or_number),
+        (finding_id_or_number, finding_id_or_number.upper()),
     )
     row = await cursor.fetchone()
     if row is None:
         return None
     return dict(row)
+
+
+async def get_finding_detail(
+    conn: aiosqlite.Connection,
+    finding_id_or_number: str,
+    case_id: str | None = None,
+    limit: int | None = 10,
+    raw: bool = False,
+) -> dict:
+    """A finding with, for each linked artifact, what exactly matched and where.
+
+    Every match gives the evidence file (real path in the container), the
+    event (EventID / RecordID / Computer) or offset, and the pattern or field
+    values that hit the rule; each rule gives its file in the rule store.
+
+    Args:
+        case_id: If given, the finding must belong to this case.
+        limit: Matches to explain (None = all).
+        raw: Also read the raw source of each match (full EVTX event / hex dump).
+    """
+    from defair.services import artifact_service
+    from defair.services.case_service import resolve_case_id
+
+    finding = await get_finding(conn, finding_id_or_number)
+    if finding is None:
+        raise ValueError(f"Finding not found: {finding_id_or_number}")
+    if case_id and finding["case_id"] != await resolve_case_id(conn, case_id):
+        raise ValueError(f"{finding['finding_number']} does not belong to case {case_id}")
+
+    for key in ("mitre_tactics", "mitre_techniques", "artifact_ids", "detection_refs"):
+        finding[key] = json.loads(finding.get(key) or "[]")
+    for ref in finding["detection_refs"]:
+        if isinstance(ref, dict):
+            path = artifact_service.rule_path(ref | {"name": ref.get("rule")})
+            if path:
+                ref["rule_path"] = path
+
+    ids = finding["artifact_ids"]
+    shown = ids if limit is None else ids[:limit]
+    matches = []
+    roots: dict = {}
+    for art_id in shown:
+        art = await artifact_service.find_artifact(conn, art_id)
+        if art is None:
+            matches.append({"artifact_id": art_id, "error": "artifact not found"})
+            continue
+        if art.get("run_id") not in roots:
+            roots[art.get("run_id")] = artifact_service.scan_root(
+                await artifact_service._tool_run(conn, art.get("run_id")))
+        explained = artifact_service.explain_match(art, roots[art.get("run_id")])
+        if raw:
+            explained["raw"] = artifact_service.raw_source(explained)
+        matches.append(explained)
+    finding["matches"] = matches
+    finding["matches_total"] = len(ids)
+    return finding
 
 
 async def update_finding_status(

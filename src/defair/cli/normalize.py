@@ -42,7 +42,7 @@ def _run(ctx: click.Context, proxy_args: list[str], coro_factory) -> None:
 
 
 @normalize_group.command("replay")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
+@click.option("--case", "case_id", required=True, help="Case number (CASE-YYYY-NNN), name or ID.")
 @click.option("--from-dir", "json_dir", default=None,
               help="Load every *.jsonl under this directory (when the database was lost).")
 @click.pass_context

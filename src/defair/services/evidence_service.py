@@ -45,12 +45,10 @@ async def add_evidence(
     if is_dir and evidence_type == "other":
         evidence_type = EvidenceType.COLLECTION.value
 
-    # Verify case exists
-    cursor = await conn.execute("SELECT id FROM cases WHERE id = ? OR case_number = ?", (case_id, case_id))
-    case_row = await cursor.fetchone()
-    if case_row is None:
-        raise ValueError(f"Case not found: {case_id}")
-    resolved_case_id = case_row["id"]
+    # Verify case exists (UUID, case number or name)
+    from defair.services.case_service import resolve_case_id
+
+    resolved_case_id = await resolve_case_id(conn, case_id)
 
     # Compute SHA-256 / tree hash (offloaded to a thread for large evidence)
     if is_dir:
@@ -129,15 +127,10 @@ async def list_evidence(
         case_id: If provided, only return evidence for this case (ID or case_number).
     """
     if case_id:
-        # Resolve case_id (could be UUID or CASE-YYYY-NNN)
-        cursor = await conn.execute(
-            "SELECT id FROM cases WHERE id = ? OR case_number = ?",
-            (case_id, case_id),
-        )
-        case_row = await cursor.fetchone()
-        if case_row is None:
-            raise ValueError(f"Case not found: {case_id}")
-        resolved_case_id = case_row["id"]
+        # Resolve case_id (UUID, case number or name)
+        from defair.services.case_service import resolve_case_id
+
+        resolved_case_id = await resolve_case_id(conn, case_id)
 
         cursor = await conn.execute(
             "SELECT * FROM evidence WHERE case_id = ? ORDER BY registered_at DESC",

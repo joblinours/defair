@@ -107,6 +107,12 @@ defair-mcp
 - **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
 - **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
 
+## v0.4.1
+
+- `--case` takes a case number, name or id (`case_service.resolve_case_id`)
+- `findings get FND-NNN` / `artifacts get ART-NNN` / `artifacts list --contains …` (`services/artifact_service.py`)
+- Logs: stderr + JSON file `/workspace/logs/defair.log` in containers (PID 1 tails it → `docker logs`); never print logs on stdout
+
 ## v0.4
 
 - **Investigate**: `defair run start --case CASE-xxx --evidence <EVD-NNN|path> --profile auto|windows-triage|… --engine auto|ez|dissect`, then `defair run status PRUN-NNN`

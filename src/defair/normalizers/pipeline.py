@@ -224,6 +224,8 @@ async def normalize_run(
         Normalization stats (also stored in ``tool_runs.normalization_stats``).
     """
     stats = new_stats()
+    if run.get("input_path"):
+        normalizer.input_path = run["input_path"]
     raw = normalizer.normalize_directory(
         run["output_path"],
         case_id=run["case_id"],

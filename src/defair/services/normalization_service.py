@@ -99,6 +99,7 @@ async def rerun(conn: aiosqlite.Connection, run_id_or_number: str) -> dict:
     )
     numbers = {r["id"]: r["artifact_number"] for r in await cursor.fetchall()}
     await conn.execute("DELETE FROM artifacts WHERE run_id = ?", (run["id"],))
+    run["input_path"] = json.loads(run.get("parameters") or "{}").get("input_path")
     stats = await normalize_run(conn, run, normalizer, keep_numbers=numbers)
     return {"run_number": run["run_number"], "tool": run["tool_name"],
             "artifacts_before": len(numbers), "artifacts_after": stats["normalized"],
