@@ -23,10 +23,24 @@ log = structlog.get_logger(component="finding_service")
 
 async def _next_finding_number(conn: aiosqlite.Connection) -> str:
     """Generate the next finding number."""
-    cursor = await conn.execute("SELECT COUNT(*) FROM findings")
+    cursor = await conn.execute(
+        "SELECT MAX(CAST(SUBSTR(finding_number, 5) AS INTEGER)) FROM findings"
+    )
     row = await cursor.fetchone()
-    count = row[0] if row else 0
-    return generate_finding_number(count + 1)
+    return generate_finding_number((row[0] or 0) + 1)
+
+
+async def _insert_finding(conn: aiosqlite.Connection, values: tuple) -> None:
+    await conn.execute(
+        """INSERT INTO findings
+        (id, finding_number, case_id, title, description,
+         severity, confidence, status, source,
+         mitre_tactics, mitre_techniques, artifact_ids, detection_refs,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        values,
+    )
+    await conn.commit()
 
 
 async def create_finding(
@@ -45,22 +59,16 @@ async def create_finding(
     """Create a new finding."""
     from uuid import uuid4
 
+    from defair.database import db_lock
     from defair.services.case_service import resolve_case_id
 
     case_id = await resolve_case_id(conn, case_id)
-
     finding_id = uuid4().hex
-    finding_number = await _next_finding_number(conn)
     now = datetime.now(UTC).isoformat()
 
-    await conn.execute(
-        """INSERT INTO findings
-        (id, finding_number, case_id, title, description,
-         severity, confidence, status, source,
-         mitre_tactics, mitre_techniques, artifact_ids, detection_refs,
-         created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
+    async with db_lock(conn):
+        finding_number = await _next_finding_number(conn)
+        await _insert_finding(conn, (
             finding_id, finding_number, case_id, title, description,
             severity, confidence, FindingStatus.OPEN.value, source,
             json.dumps(mitre_tactics or []),
@@ -68,9 +76,7 @@ async def create_finding(
             json.dumps(artifact_ids or []),
             json.dumps(detection_refs or []),
             now, now,
-        ),
-    )
-    await conn.commit()
+        ))
 
     log.info("finding_created", finding_number=finding_number, title=title)
     return {

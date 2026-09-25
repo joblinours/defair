@@ -1,0 +1,80 @@
+description: >
+  Extended Windows analysis — everything in windows-triage plus Jump Lists,
+  Recycle Bin, ShellBags, SRUM, Windows Timeline, browser databases, USN
+  journal, and a broad YARA/Sigma scan (every pinned rule source).
+platforms: [windows]
+steps:
+  - id: evtx
+    tool: evtxecmd
+    input: evtx_dir
+    fallbacks: [evtx_native, {tool: dissect_plugin, plugin: evtx, input: target}]
+  - id: hunt
+    action: hunt
+    input: evtx_dir
+    optional: true
+  - id: prefetch
+    tool: prefetch
+    input: prefetch_dir
+    fallbacks: [{tool: dissect_plugin, plugin: prefetch, input: target}]
+  - id: amcache
+    tool: amcacheparser
+    input: amcache
+    fallbacks: [{tool: dissect_plugin, plugin: amcache.applications, input: target}]
+  - id: shimcache
+    tool: appcompatcacheparser
+    input: system_hive
+    fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: registry
+    tool: recmd
+    input: hives_dir
+    fallbacks: [{tool: dissect_plugin, plugin: runkeys, input: target}]
+  - id: userassist
+    tool: dissect_plugin
+    input: target
+    options: {plugin: userassist}
+    optional: true
+  - id: lnk
+    tool: lecmd
+    input: users_dir
+    fallbacks: [lnk_native, {tool: dissect_plugin, plugin: lnk, input: target}]
+  - id: jumplists
+    tool: jlecmd
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: jumplist.automatic_destination, input: target}]
+  - id: shellbags
+    tool: sbecmd
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: shellbags, input: target}]
+  - id: recyclebin
+    tool: rbcmd
+    input: recyclebin
+    fallbacks: [{tool: dissect_plugin, plugin: recyclebin, input: target}]
+  - id: srum
+    tool: srumecmd
+    input: srum
+    options: {registry_hive: $software_hive}
+  - id: wintimeline
+    tool: wxtcmd
+    input: activities
+    fallbacks: [{tool: dissect_plugin, plugin: activitiescache, input: target}]
+  - id: browsers
+    tool: sqlecmd
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: browser.history, input: target}]
+  - id: mft
+    tool: mftecmd
+    input: mft
+    fallbacks: [{tool: dissect_plugin, plugin: mft.records, input: target}]
+  - id: usnjrnl
+    tool: mftecmd
+    input: usnjrnl
+    fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
+  - id: scan
+    action: scan
+    input: base
+    options: {mode: all, rule_profile: broad}
+    optional: true
+  - id: timeline
+    action: timeline_summary
+    needs: [evtx, hunt, prefetch, amcache, shimcache, registry, userassist, lnk, jumplists,
+            shellbags, recyclebin, srum, wintimeline, browsers, mft, usnjrnl, scan]

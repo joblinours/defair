@@ -1,0 +1,54 @@
+description: >
+  Ransomware focus — process creation, PowerShell, services / PsExec, RDP and
+  accounts (event logs + hunting), execution evidence, recently modified and
+  deleted files (MFT, USN, Recycle Bin), SRUM data volumes, broad YARA/Sigma.
+platforms: [windows]
+steps:
+  - id: evtx
+    tool: evtxecmd
+    input: evtx_dir
+    fallbacks: [evtx_native, {tool: dissect_plugin, plugin: evtx, input: target}]
+  - id: hunt
+    action: hunt
+    input: evtx_dir
+    optional: true
+  - id: prefetch
+    tool: prefetch
+    input: prefetch_dir
+    fallbacks: [{tool: dissect_plugin, plugin: prefetch, input: target}]
+  - id: amcache
+    tool: amcacheparser
+    input: amcache
+    fallbacks: [{tool: dissect_plugin, plugin: amcache.applications, input: target}]
+  - id: shimcache
+    tool: appcompatcacheparser
+    input: system_hive
+    fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: mft
+    tool: mftecmd
+    input: mft
+    fallbacks: [{tool: dissect_plugin, plugin: mft.records, input: target}]
+  - id: usnjrnl
+    tool: mftecmd
+    input: usnjrnl
+    fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
+  - id: recyclebin
+    tool: rbcmd
+    input: recyclebin
+    fallbacks: [{tool: dissect_plugin, plugin: recyclebin, input: target}]
+  - id: lnk
+    tool: lecmd
+    input: users_dir
+    fallbacks: [lnk_native, {tool: dissect_plugin, plugin: lnk, input: target}]
+  - id: srum
+    tool: srumecmd
+    input: srum
+    options: {registry_hive: $software_hive}
+  - id: scan
+    action: scan
+    input: base
+    options: {mode: all, rule_profile: broad}
+    optional: true
+  - id: timeline
+    action: timeline_summary
+    needs: [evtx, hunt, prefetch, amcache, shimcache, mft, usnjrnl, recyclebin, lnk, srum, scan]

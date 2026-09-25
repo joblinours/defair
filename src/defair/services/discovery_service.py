@@ -156,8 +156,11 @@ async def discover_artifacts(
     if platform == "unknown" and source.platform != "unknown":
         platform = source.platform
 
+    from defair.orchestrator.profile import recommend_profiles
+
     result = {
         "source": source.model_dump(),
+        "recommended_profiles": recommend_profiles(platform),
         "platform": platform,
         "hostname": hostname,
         "evidence_path": evidence_path,

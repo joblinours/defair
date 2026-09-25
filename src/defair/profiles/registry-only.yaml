@@ -1,0 +1,22 @@
+description: Registry hives only — RECmd, Amcache, Shimcache, ShellBags.
+platforms: [windows]
+steps:
+  - id: registry
+    tool: recmd
+    input: hives_dir
+    fallbacks: [{tool: dissect_plugin, plugin: runkeys, input: target}]
+  - id: amcache
+    tool: amcacheparser
+    input: amcache
+    fallbacks: [{tool: dissect_plugin, plugin: amcache.applications, input: target}]
+  - id: shimcache
+    tool: appcompatcacheparser
+    input: system_hive
+    fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: shellbags
+    tool: sbecmd
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: shellbags, input: target}]
+  - id: timeline
+    action: timeline_summary
+    needs: [registry, amcache, shimcache, shellbags]

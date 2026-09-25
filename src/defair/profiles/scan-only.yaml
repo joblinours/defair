@@ -1,0 +1,12 @@
+description: >
+  Platform-agnostic — YARA + Sigma scan of the whole evidence (Linux logs
+  included). Used by analyze_evidence when no Windows system is found.
+platforms: [windows, linux, unknown]
+steps:
+  - id: scan
+    action: scan
+    input: base
+    options: {mode: all, rule_profile: broad}
+  - id: timeline
+    action: timeline_summary
+    needs: [scan]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -192,6 +193,22 @@ async def migrate(conn: aiosqlite.Connection) -> int:
         await conn.execute(f"PRAGMA user_version = {version}")
     await conn.commit()
     return max(current, SCHEMA_VERSION)
+
+
+_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def db_lock(conn: aiosqlite.Connection) -> asyncio.Lock:
+    """Lock for read-then-write sequences on one connection.
+
+    Human-readable numbers (RUN-, ART-, FND-, PRUN-NNN) are computed from the
+    table then inserted; when profile steps run in parallel on the same
+    connection, that sequence must not interleave.
+    """
+    lock = _LOCKS.get(conn)
+    if lock is None:
+        lock = _LOCKS[conn] = asyncio.Lock()
+    return lock
 
 
 async def get_connection(db_path: str | Path) -> aiosqlite.Connection:

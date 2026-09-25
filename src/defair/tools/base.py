@@ -168,10 +168,18 @@ class BaseTool(ABC):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=effective_timeout,
-            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=effective_timeout,
+                )
+            except (TimeoutError, asyncio.CancelledError):
+                # Timed out or the profile run was cancelled: never leave the
+                # tool running behind us
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+                raise
 
             tool_run.exit_code = proc.returncode
             tool_run.stdout = stdout_bytes.decode(errors="replace")

@@ -30,6 +30,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 import aiosqlite
 import structlog
 
+from defair.database import db_lock
 from defair.normalizers.timestamps import to_utc_iso
 
 log = structlog.get_logger(component="normalization")
@@ -241,6 +242,12 @@ async def normalize_run(
         artifacts.append(enrich(art, run, stats, seen))
         stats["normalized"] += 1
 
+    async with db_lock(conn):
+        return await _store_run(conn, run, artifacts, stats, keep_numbers)
+
+
+async def _store_run(conn, run: dict, artifacts: list[dict], stats: dict,
+                     keep_numbers: dict[str, str] | None) -> dict:
     # Numbering computed once for the whole run (not a COUNT per row)
     sequence = await next_artifact_sequence(conn)
     keep_numbers = keep_numbers or {}

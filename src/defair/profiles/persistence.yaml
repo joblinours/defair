@@ -1,0 +1,38 @@
+description: >
+  Persistence hunting — services, scheduled tasks, run keys, WMI and
+  autostart evidence from event logs, registry and Amcache, plus Sigma rules.
+platforms: [windows]
+steps:
+  - id: evtx
+    tool: evtxecmd
+    input: evtx_dir
+    fallbacks: [evtx_native, {tool: dissect_plugin, plugin: evtx, input: target}]
+  - id: hunt
+    action: hunt
+    input: evtx_dir
+    optional: true
+  - id: registry
+    tool: recmd
+    input: hives_dir
+    fallbacks: [{tool: dissect_plugin, plugin: runkeys, input: target}]
+  - id: runkeys
+    tool: dissect_plugin
+    input: target
+    options: {plugin: runkeys}
+    optional: true
+  - id: amcache
+    tool: amcacheparser
+    input: amcache
+    fallbacks: [{tool: dissect_plugin, plugin: amcache.applications, input: target}]
+  - id: shimcache
+    tool: appcompatcacheparser
+    input: system_hive
+    fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: scan
+    action: scan
+    input: base
+    options: {mode: sigma, rule_profile: broad}
+    optional: true
+  - id: timeline
+    action: timeline_summary
+    needs: [evtx, hunt, registry, runkeys, amcache, shimcache, scan]

@@ -150,6 +150,8 @@ def hardening_kwargs(policy: ContainerConfig) -> dict:
         "nano_cpus": int(policy.cpus * 1_000_000_000),
         "pids_limit": policy.pids_limit,
         "user": f"{os.getuid()}:{os.getgid()}",
+        # docker-init as PID 1 reaps detached profile-run workers
+        "init": True,
     }
     if policy.read_only_rootfs:
         kwargs["read_only"] = True

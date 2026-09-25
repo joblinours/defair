@@ -1411,16 +1411,200 @@ async def prepare_evidence(
              container=container, evidence_id=evidence_id,
              secrets=[n for n, v in (("password", password), ("passphrase", passphrase)) if v])
 
-    if private_key and (not private_key.startswith("/keys/") or ".." in private_key.split("/")):
-        raise ValueError("private_key must be a path inside the container, under /keys/")
+    _check_key_path(private_key)
     cmd = ["evidence", "prepare", evidence_id, "--json"]
     if private_key:
         cmd.extend(["--private-key", private_key])
     if force:
         cmd.append("--force")
-    env = {k: v for k, v in (("DEFAIR_EVIDENCE_PASSWORD", password),
-                             ("DEFAIR_KEY_PASSPHRASE", passphrase)) if v}
-    return await _proxy_defair(container, cmd, env=env)
+    return await _proxy_defair(container, cmd, env=_secret_env(password, passphrase))
+
+
+# ── Profiles + profile runs (v0.4) ───────────────────────────────────
+
+_SECRET_ENV = {"password": "DEFAIR_EVIDENCE_PASSWORD", "passphrase": "DEFAIR_KEY_PASSPHRASE"}
+
+
+def _secret_env(password: str | None, passphrase: str | None) -> dict[str, str]:
+    values = {"password": password, "passphrase": passphrase}
+    return {_SECRET_ENV[k]: v for k, v in values.items() if v}
+
+
+def _check_key_path(private_key: str | None) -> None:
+    if private_key and (not private_key.startswith("/keys/") or ".." in private_key.split("/")):
+        raise ValueError("private_key must be a path inside the container, under /keys/")
+
+
+@mcp.tool()
+async def list_profiles(container: str) -> str:
+    """List the analysis profiles (windows-triage, windows-full, ransomware,
+    persistence, registry-only, scan-only) with their steps.
+
+    Args:
+        container: Container name.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_profiles", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["profile", "list", "--json"])
+
+
+@mcp.tool()
+async def get_profile(container: str, name: str) -> str:
+    """Show a profile: each step's tool, input artifact, fallbacks and dependencies.
+
+    Args:
+        container: Container name.
+        name: Profile name.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_profile", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["profile", "show", name])
+
+
+@mcp.tool()
+async def run_profile(
+    container: str,
+    case_id: str,
+    evidence_id: str,
+    profile: str = "auto",
+    engine: str = "auto",
+    password: str | None = None,
+    private_key: str | None = None,
+    passphrase: str | None = None,
+) -> str:
+    """Run a complete analysis profile on an evidence — in the background.
+
+    One call prepares the evidence (extraction / decryption / Dissect carving
+    when needed) and runs every step of the profile as a DAG: EZ Tools first,
+    then pure-Python and Dissect plugin fallbacks, Sigma hunting, YARA/Sigma
+    scan, timeline. Returns immediately with a run number (PRUN-NNN): follow
+    it with get_run_status, stop it with cancel_run.
+
+    Args:
+        container: Container name.
+        case_id: Case number.
+        evidence_id: Evidence number (EVD-NNN) — register it first.
+        profile: Profile name, or "auto" (chosen from the detected platform).
+        engine: "auto" (EZ Tools → fallbacks), "ez" (no Dissect) or
+                "dissect" (Dissect plugins on the original image / collection).
+        password: Archive password, if the evidence needs one.
+        private_key: PEM key under /keys for DFIR-ORC / Generaptor.
+        passphrase: Private key passphrase.
+
+    Returns:
+        JSON with the run number to follow.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="run_profile", correlation_id=cid, container=container,
+             profile=profile, engine=engine, evidence_id=evidence_id)
+    _check_key_path(private_key)
+    cmd = ["run", "start", "--case", case_id, "--evidence", evidence_id,
+           "--profile", profile, "--engine", engine, "--json"]
+    if private_key:
+        cmd.extend(["--private-key", private_key])
+    return await _proxy_defair(container, cmd, env=_secret_env(password, passphrase))
+
+
+@mcp.tool()
+async def analyze_evidence(
+    container: str,
+    case_id: str,
+    evidence_path: str,
+    engine: str = "auto",
+    password: str | None = None,
+    private_key: str | None = None,
+    passphrase: str | None = None,
+) -> str:
+    """One call from a path to a full investigation (background).
+
+    Registers the evidence (file or collection folder under /evidence),
+    detects its format and platform, prepares it, picks the profile
+    (windows-triage for Windows, scan-only otherwise) and runs it.
+    Follow with get_run_status.
+
+    Args:
+        container: Container name.
+        case_id: Case number.
+        evidence_path: Path inside the container (e.g. /evidence/host01.E01).
+        engine: "auto", "ez" or "dissect".
+        password: Archive password, if needed.
+        private_key: PEM key under /keys for DFIR-ORC / Generaptor.
+        passphrase: Private key passphrase.
+
+    Returns:
+        JSON with the run number to follow.
+    """
+    from defair.services.analysis_service import _is_under_allowed_root
+
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="analyze_evidence", correlation_id=cid, container=container,
+             evidence_path=evidence_path)
+    if not _is_under_allowed_root(evidence_path):
+        raise ValueError("evidence_path must be under /evidence, /workspace or /rules")
+    _check_key_path(private_key)
+    cmd = ["run", "start", "--case", case_id, "--evidence", evidence_path,
+           "--profile", "auto", "--engine", engine, "--json"]
+    if private_key:
+        cmd.extend(["--private-key", private_key])
+    return await _proxy_defair(container, cmd, env=_secret_env(password, passphrase))
+
+
+@mcp.tool()
+async def get_run_status(container: str, run: str) -> str:
+    """Status of a profile run: overall state, each step (tools tried,
+    fallback used, artifacts, errors), manifest path, worker log tail.
+
+    Args:
+        container: Container name.
+        run: Run number (PRUN-NNN).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_run_status", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["run", "status", run, "--json"])
+
+
+@mcp.tool()
+async def list_runs(container: str, case_id: str | None = None) -> str:
+    """List profile runs (PRUN-NNN) with their status.
+
+    Args:
+        container: Container name.
+        case_id: Optional case filter.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_runs", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["run", "list", "--json",
+                                           *(["--case", case_id] if case_id else [])])
+
+
+@mcp.tool()
+async def cancel_run(container: str, run: str) -> str:
+    """Cancel a running profile run; running tools are stopped.
+
+    Args:
+        container: Container name.
+        run: Run number (PRUN-NNN).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="cancel_run", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["run", "cancel", run, "--json"])
+
+
+@mcp.tool()
+async def resume_run(container: str, run: str, password: str | None = None,
+                     private_key: str | None = None, passphrase: str | None = None) -> str:
+    """Resume a failed or cancelled profile run; completed steps are kept.
+
+    Args:
+        container: Container name.
+        run: Run number (PRUN-NNN).
+        password / private_key / passphrase: Secrets, if the evidence needs them.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="resume_run", correlation_id=cid, container=container)
+    _check_key_path(private_key)
+    cmd = ["run", "resume", run, "--json", *(["--private-key", private_key] if private_key else [])]
+    return await _proxy_defair(container, cmd, env=_secret_env(password, passphrase))
 
 
 # ── Normalization pipeline + timeline export (v0.3.8) ────────────────

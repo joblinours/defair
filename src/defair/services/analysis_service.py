@@ -107,11 +107,27 @@ def parse_option_pairs(pairs: list[str] | tuple[str, ...]) -> dict:
 
 
 async def _next_run_number(conn: aiosqlite.Connection) -> str:
-    """Generate the next run number."""
-    cursor = await conn.execute("SELECT COUNT(*) FROM tool_runs")
+    """Generate the next run number (call under ``db_lock``)."""
+    cursor = await conn.execute(
+        "SELECT MAX(CAST(SUBSTR(run_number, 5) AS INTEGER)) FROM tool_runs"
+    )
     row = await cursor.fetchone()
-    count = row[0] if row else 0
-    return generate_run_number(count + 1)
+    return generate_run_number((row[0] or 0) + 1)
+
+
+async def _reserve_tool_run(
+    conn: aiosqlite.Connection, tool_name: str, case_id: str, evidence_id: str | None,
+) -> ToolRun:
+    """Insert a RUNNING row so parallel runs never get the same RUN-NNN."""
+    from defair.database import db_lock
+
+    async with db_lock(conn):
+        placeholder = ToolRun(
+            run_number=await _next_run_number(conn), case_id=case_id, evidence_id=evidence_id,
+            tool_name=tool_name, status=ToolRunStatus.RUNNING, started_at=datetime.now(UTC),
+        )
+        await _save_tool_run(conn, placeholder)
+    return placeholder
 
 
 async def run_tool(
@@ -157,23 +173,27 @@ async def run_tool(
             f"Binary '{tool.manifest().command}' not found."
         )
 
-    # Generate run number and output directory
-    run_number = await _next_run_number(conn)
-    output_dir = str(Path(output_base) / tool_name / run_number)
+    # Reserve the run (number + row) before executing
+    reserved = await _reserve_tool_run(conn, tool_name, case_id, evidence_id)
+    output_dir = str(Path(output_base) / tool_name / reserved.run_number)
 
-    # Execute
-    tool_run = await tool.run(
-        input_path=input_path,
-        output_dir=output_dir,
-        case_id=case_id,
-        evidence_id=evidence_id,
-        run_number=run_number,
-        **kwargs,
-    )
+    try:
+        tool_run = await tool.run(
+            input_path=input_path,
+            output_dir=output_dir,
+            case_id=case_id,
+            evidence_id=evidence_id,
+            run_number=reserved.run_number,
+            **kwargs,
+        )
+    except BaseException:  # cancelled / crashed: never leave a RUNNING row behind
+        reserved.status = ToolRunStatus.CANCELLED
+        reserved.completed_at = datetime.now(UTC)
+        await _save_tool_run(conn, reserved)
+        raise
 
-    # Store in database
+    tool_run.id = reserved.id
     await _save_tool_run(conn, tool_run)
-
     return tool_run
 
 
@@ -185,6 +205,7 @@ async def run_tool_and_normalize(
     evidence_id: str | None = None,
     output_base: str = "/workspace/analysis",
     registry: ToolRegistry | None = None,
+    auto_fallback: bool = True,
     **kwargs,
 ) -> dict:
     """Execute a tool, normalize its outputs, and store artifacts.
@@ -207,7 +228,7 @@ async def run_tool_and_normalize(
     )
 
     fallback_name = registry.get(tool_name).manifest().fallback
-    if tool_run.status != ToolRunStatus.COMPLETED and fallback_name:
+    if auto_fallback and tool_run.status != ToolRunStatus.COMPLETED and fallback_name:
         fallback = registry.get(fallback_name)
         if fallback is not None and fallback.is_available():
             log.warning("tool_failed_running_fallback", tool=tool_name,
@@ -335,7 +356,7 @@ async def list_artifacts(
 async def _save_tool_run(conn: aiosqlite.Connection, run: ToolRun) -> None:
     """Insert a tool run record into the database."""
     await conn.execute(
-        """INSERT INTO tool_runs
+        """INSERT OR REPLACE INTO tool_runs
         (id, run_number, case_id, evidence_id, tool_name, tool_version,
          command, parameters, status, exit_code, stdout, stderr,
          output_path, output_files, output_hash,
@@ -361,16 +382,18 @@ async def _save_tool_run(conn: aiosqlite.Connection, run: ToolRun) -> None:
 
 async def _save_artifact(conn: aiosqlite.Connection, art: dict) -> None:
     """Insert one normalized artifact (outside a tool run's pipeline)."""
+    from defair.database import db_lock
     from defair.normalizers.pipeline import bulk_insert, next_artifact_sequence
 
     category = art.get("category", "other")
-    row = {
-        **art,
-        "id": art.get("id") or uuid4().hex,
-        "artifact_number": art.get("artifact_number")
-        or f"ART-{await next_artifact_sequence(conn):03d}",
-        "artifact_type": art.get("artifact_type", "unknown"),
-        "category": getattr(category, "value", category),
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    await bulk_insert(conn, [row])
+    async with db_lock(conn):
+        row = {
+            **art,
+            "id": art.get("id") or uuid4().hex,
+            "artifact_number": art.get("artifact_number")
+            or f"ART-{await next_artifact_sequence(conn):03d}",
+            "artifact_type": art.get("artifact_type", "unknown"),
+            "category": getattr(category, "value", category),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        await bulk_insert(conn, [row])
