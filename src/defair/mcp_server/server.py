@@ -38,19 +38,27 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 
-async def _proxy_defair(container_name: str, args: list[str]) -> dict | list | str:
+async def _proxy_defair(
+    container_name: str,
+    args: list[str],
+    env: dict[str, str] | None = None,
+) -> dict | list | str:
     """Execute a defair CLI command inside a container and return parsed output.
 
     Args:
         container_name: Target container.
         args: CLI args (e.g. ["case", "create", "My case", "--description", "..."]).
+        env: Extra environment for the exec — secrets travel here, never in
+            ``args`` (the command line is logged).
 
     Returns:
         Parsed JSON if the command outputs JSON, otherwise raw stdout text.
     """
+    kwargs = {"env": env} if env else {}
     result = await container_service.exec_in_container(
         container_name,
         ["defair", *args],
+        **kwargs,
     )
 
     if result["exit_code"] != 0:
@@ -74,6 +82,7 @@ async def create_container(
     image: str = container_service.DEFAULT_IMAGE,
     evidence_paths: list[str] | None = None,
     start: bool = True,
+    keys_path: str | None = None,
 ) -> dict:
     """Create a new DEFAIR forensic container.
 
@@ -88,6 +97,9 @@ async def create_container(
         evidence_paths: Host paths to mount as read-only evidence. Must be under
                         one of the configured evidence roots (container.evidence_roots).
         start: Whether to start the container after creation (default: True).
+        keys_path: Host directory of private keys for encrypted DFIR-ORC /
+                   Generaptor collections, mounted read-only at /keys. Must be
+                   under container.key_roots.
 
     Returns:
         Container details (name, ID, status, workspace path).
@@ -103,6 +115,7 @@ async def create_container(
         evidence_paths=evidence_paths,
         policy=_config.container,
         strict_evidence_roots=True,
+        keys_path=keys_path,
     )
 
     if start:
@@ -385,14 +398,17 @@ async def register_evidence(
 ) -> str:
     """Register a new piece of evidence in a forensic case.
 
-    The path must be accessible inside the container (e.g. /evidence/disk.E01).
-    Evidence files are mounted read-only when the container is created.
+    The path must be accessible inside the container: a file (disk image,
+    archive, EVTX…) or a collection folder (KAPE, Velociraptor, FastIR…).
+    Files are SHA-256 hashed, folders get a tree hash; the source format is
+    detected (see `needs` in the result: password / private_key).
 
     Args:
         container: Container name.
         case_id: Case number (e.g. "CASE-2026-001") or UUID.
-        path: Path to the evidence file INSIDE the container.
-        evidence_type: Type — disk_image, memory_dump, logs, triage_archive, pcap, other.
+        path: Path to the evidence file or folder INSIDE the container.
+        evidence_type: Type — disk_image, memory_dump, logs, triage_archive,
+                       collection, pcap, other (folders default to collection).
 
     Returns:
         Registration details with SHA-256 hash.
@@ -1353,6 +1369,58 @@ async def list_rule_conflicts(container: str, profile: str | None = None) -> str
     cid = new_correlation_id()
     log.info("mcp_tool_called", tool="list_rule_conflicts", correlation_id=cid, container=container)
     return await _proxy_defair(container, ["rules", "conflicts", *(["--profile", profile] if profile else [])])
+
+
+# ── Evidence preparation (v0.4) ──────────────────────────────────────
+
+
+@mcp.tool()
+async def prepare_evidence(
+    container: str,
+    evidence_id: str,
+    password: str | None = None,
+    private_key: str | None = None,
+    passphrase: str | None = None,
+    force: bool = False,
+) -> str:
+    """Make a registered evidence usable by the forensic tools.
+
+    - KAPE / Velociraptor / FastIR folders, mounts, log folders: used in place
+    - ZIP (with or without password): extracted
+    - Generaptor / DFIR-ORC collections: decrypted with the private key
+    - Disk images (E01, VMDK, VHD/VHDX, QCOW2, raw): artifacts carved with
+      Dissect (no mount), plus a host profile artifact
+
+    Derived files go to /workspace/sources/EVD-NNN/ with a manifest (origin +
+    SHA-256 of each file). Secrets are passed through the container
+    environment — never on a command line, never stored or logged.
+
+    Args:
+        container: Container name.
+        evidence_id: Evidence number (EVD-NNN).
+        password: Archive password, if the evidence needs one.
+        private_key: PEM private key path inside the container (under /keys).
+        passphrase: Private key passphrase, if the key is encrypted.
+        force: Prepare again even if already prepared.
+
+    Returns:
+        JSON: detected kind, platform, root, artifact selectors found, manifest.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="prepare_evidence", correlation_id=cid,
+             container=container, evidence_id=evidence_id,
+             secrets=[n for n, v in (("password", password), ("passphrase", passphrase)) if v])
+
+    if private_key and (not private_key.startswith("/keys/") or ".." in private_key.split("/")):
+        raise ValueError("private_key must be a path inside the container, under /keys/")
+    cmd = ["evidence", "prepare", evidence_id, "--json"]
+    if private_key:
+        cmd.extend(["--private-key", private_key])
+    if force:
+        cmd.append("--force")
+    env = {k: v for k, v in (("DEFAIR_EVIDENCE_PASSWORD", password),
+                             ("DEFAIR_KEY_PASSPHRASE", passphrase)) if v}
+    return await _proxy_defair(container, cmd, env=env)
 
 
 # ── Normalization pipeline + timeline export (v0.3.8) ────────────────

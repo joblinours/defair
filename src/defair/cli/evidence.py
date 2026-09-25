@@ -22,15 +22,17 @@ def evidence_group() -> None:
 @click.argument("case_id")
 @click.argument("path")
 @click.option("--type", "evidence_type", default="other",
-              type=click.Choice(["disk_image", "memory_dump", "logs", "triage_archive", "pcap", "other"]),
+              type=click.Choice(["disk_image", "memory_dump", "logs", "triage_archive", "collection",
+                                 "pcap", "other"]),
               help="Type of evidence.")
 @click.pass_context
 def evidence_add(ctx: click.Context, case_id: str, path: str, evidence_type: str) -> None:
     """Register a new piece of evidence in a case.
 
-    Computes SHA-256 hash and stores metadata. The original file is never modified.
-
-    PATH is the path inside the container (e.g. /evidence/disk.E01).
+    PATH is a file or a collection folder inside the container (e.g.
+    /evidence/disk.E01, /evidence/kape_output). Files are SHA-256 hashed,
+    folders get a tree hash. The source format is detected. The original is
+    never modified.
     """
     container = get_container_or_fail(ctx)
     if container:
@@ -54,6 +56,10 @@ def evidence_add(ctx: click.Context, case_id: str, path: str, evidence_type: str
         console.print(f"  Type:     {evidence.type}")
         console.print(f"  Size:     {_format_size(evidence.size_bytes)}")
         console.print(f"  SHA-256:  {evidence.sha256}")
+        console.print(f"  Source:   {evidence.source_kind}")
+        needs = evidence.source_info.get("needs") or []
+        if needs:
+            console.print(f"  [yellow]Needs:    {', '.join(needs)} (see `defair evidence prepare`)[/yellow]")
         console.print(f"  Case:     {case_id}")
         console.print(f"  ID:       {evidence.id}")
 
@@ -189,3 +195,88 @@ def _format_size(size_bytes: int | None) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} PB"
+
+
+PASSWORD_ENV = "DEFAIR_EVIDENCE_PASSWORD"
+PASSPHRASE_ENV = "DEFAIR_KEY_PASSPHRASE"
+
+
+@evidence_group.command("prepare")
+@click.argument("evidence_id")
+@click.option("--password", envvar=PASSWORD_ENV, default=None,
+              help=f"Archive password (or ${PASSWORD_ENV}).")
+@click.option("--private-key", default=None,
+              help="PEM private key for DFIR-ORC / Generaptor (e.g. /keys/orc.pem).")
+@click.option("--passphrase", envvar=PASSPHRASE_ENV, default=None,
+              help=f"Private key passphrase (or ${PASSPHRASE_ENV}).")
+@click.option("--force", is_flag=True, help="Prepare again even if already prepared.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+@click.pass_context
+def evidence_prepare(
+    ctx: click.Context,
+    evidence_id: str,
+    password: str | None,
+    private_key: str | None,
+    passphrase: str | None,
+    force: bool,
+    as_json: bool,
+) -> None:
+    """Make evidence usable by the tools.
+
+    Collections on disk are used in place; archives are extracted, DFIR-ORC /
+    Generaptor collections decrypted, disk images carved with Dissect — into
+    /workspace/sources/EVD-NNN/ with a manifest of every derived file.
+    Secrets are never stored, logged or passed on a command line.
+    """
+    container = get_container_or_fail(ctx)
+    if container:
+        cmd = ["evidence", "prepare", evidence_id]
+        if private_key:
+            cmd.extend(["--private-key", private_key])
+        if force:
+            cmd.append("--force")
+        if as_json:
+            cmd.append("--json")
+        env = {k: v for k, v in ((PASSWORD_ENV, password), (PASSPHRASE_ENV, passphrase)) if v}
+        return proxy_command(container, cmd, env=env)
+
+    import json
+
+    from defair.config import ExtractionConfig
+    from defair.sources.archives import ExtractionLimits
+    from defair.sources.prepare import PreparationError, Secrets, prepare_evidence
+
+    config = ctx.obj["config"]
+    extraction = getattr(config, "extraction", ExtractionConfig())
+
+    async def _run() -> None:
+        conn = await get_initialized_connection(ctx.obj["db_path"])
+        try:
+            prepared = await prepare_evidence(
+                conn, evidence_id,
+                Secrets(password=password, private_key=private_key, passphrase=passphrase),
+                limits=ExtractionLimits(extraction.max_bytes, extraction.max_files),
+                force=force,
+            )
+        except (PreparationError, FileNotFoundError) as e:
+            console.print(f"[red]✗[/red] {e}")
+            raise SystemExit(1)
+        finally:
+            await conn.close()
+
+        if as_json:
+            click.echo(json.dumps(prepared, indent=2, default=str))
+            return
+        console.print(f"[green]✓[/green] Evidence prepared: [cyan]{prepared['evidence_number']}[/cyan]")
+        console.print(f"  Source:    {prepared['source']['kind']} → {prepared['kind']}")
+        console.print(f"  Platform:  {prepared['platform']}")
+        console.print(f"  Root:      {prepared.get('root') or prepared['base']}")
+        if prepared.get("derived"):
+            console.print(f"  Derived:   {prepared['derived_files']} files (manifest: {prepared.get('manifest')})")
+        if prepared.get("host", {}).get("hostname"):
+            console.print(f"  Hostname:  {prepared['host']['hostname']}")
+        for selector, paths in sorted(prepared["selectors"].items()):
+            if selector != "root":
+                console.print(f"  {selector:14} {len(paths)} location(s)")
+
+    run_sync(_run())

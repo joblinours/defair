@@ -118,7 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_findings_finding_number ON findings(finding_numbe
 # Schema migrations, applied in order on top of SCHEMA_SQL. Each step is
 # idempotent (columns are only added when missing), so databases created by
 # any earlier DEFAIR version upgrade in place.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _MIGRATION_COLUMNS: dict[int, list[tuple[str, str, str]]] = {
     2: [
@@ -127,6 +127,11 @@ _MIGRATION_COLUMNS: dict[int, list[tuple[str, str, str]]] = {
         ("artifacts", "provenance", "TEXT DEFAULT '{}'"),
         ("artifacts", "record_key", "TEXT"),
         ("tool_runs", "normalization_stats", "TEXT DEFAULT '{}'"),
+    ],
+    3: [
+        ("evidence", "source_kind", "TEXT"),
+        ("evidence", "source_info", "TEXT DEFAULT '{}'"),
+        ("evidence", "prepared", "TEXT DEFAULT '{}'"),
     ],
 }
 
@@ -145,6 +150,26 @@ CREATE TABLE IF NOT EXISTS normalized_files (
 CREATE INDEX IF NOT EXISTS idx_normalized_files_run ON normalized_files(run_id);
 CREATE INDEX IF NOT EXISTS idx_normalized_files_case ON normalized_files(case_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_record_key ON artifacts(run_id, record_key);
+""",
+    3: """
+CREATE TABLE IF NOT EXISTS profile_runs (
+    id TEXT PRIMARY KEY,
+    run_number TEXT UNIQUE NOT NULL,
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    evidence_id TEXT REFERENCES evidence(id),
+    profile TEXT NOT NULL,
+    engine TEXT DEFAULT 'auto',
+    status TEXT DEFAULT 'pending',
+    params TEXT DEFAULT '{}',
+    steps TEXT DEFAULT '[]',
+    pid INTEGER,
+    error TEXT,
+    manifest_path TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_profile_runs_case ON profile_runs(case_id);
 """,
 }
 

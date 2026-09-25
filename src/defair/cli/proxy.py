@@ -43,12 +43,17 @@ def get_container_or_fail(ctx: click.Context) -> str | None:
     raise SystemExit(1)
 
 
-def proxy_command(container_name: str, command_args: list[str]) -> None:
+def proxy_command(
+    container_name: str,
+    command_args: list[str],
+    env: dict[str, str] | None = None,
+) -> None:
     """Execute a defair command inside a container.
 
     Args:
         container_name: Target container name.
         command_args: The defair subcommand + args (e.g. ["case", "create", "My case"]).
+        env: Extra environment (secrets go here, never in the logged command line).
     """
     full_cmd = ["defair", *command_args]
 
@@ -57,6 +62,7 @@ def proxy_command(container_name: str, command_args: list[str]) -> None:
             result = await container_service.exec_in_container(
                 container_name,
                 full_cmd,
+                **({"env": env} if env else {}),
             )
         except (ConnectionError, ValueError, RuntimeError) as e:
             console.print(f"[red]✗[/red] {e}")

@@ -152,6 +152,11 @@ def discover_cmd(ctx: click.Context, evidence_path: str, no_recursive: bool) -> 
 
         console.print("\n[bold]Evidence Discovery[/bold]")
         console.print(f"  Path:      {result['evidence_path']}")
+        source = result.get("source") or {}
+        console.print(f"  Source:    [cyan]{source.get('kind', 'unknown')}[/cyan]"
+                      + (f" (needs: {', '.join(source['needs'])})" if source.get("needs") else ""))
+        if source.get("root"):
+            console.print(f"  Root:      {source['root']}")
         console.print(f"  Platform:  [cyan]{result['platform']}[/cyan]")
         if result.get("hostname"):
             console.print(f"  Hostname:  {result['hostname']}")

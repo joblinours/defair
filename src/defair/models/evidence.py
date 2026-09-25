@@ -16,6 +16,7 @@ class EvidenceType(StrEnum):
     MEMORY_DUMP = "memory_dump"
     LOGS = "logs"
     TRIAGE_ARCHIVE = "triage_archive"
+    COLLECTION = "collection"  # triage collection folder (KAPE, Velociraptor…)
     PCAP = "pcap"
     OTHER = "other"
 
@@ -36,6 +37,11 @@ class Evidence(BaseModel):
     size_bytes: int | None = None
     sha256: str | None = None
     read_only: bool = True
+    # Detected source (defair.sources.detect): kind + details
+    source_kind: str | None = None
+    source_info: dict = Field(default_factory=dict)
+    # Result of prepare_evidence (root, manifest…), empty until prepared
+    prepared: dict = Field(default_factory=dict)
     registered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

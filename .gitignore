@@ -37,3 +37,7 @@ evidence/*
 
 # External tools (reference sources, never committed)
 external_tool/
+
+# Build outputs of vendored engines
+engines/orc-decrypt/build/
+engines/*/src/*.egg-info/

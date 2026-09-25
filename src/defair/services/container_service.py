@@ -167,6 +167,7 @@ async def create_container(
     env: dict[str, str] | None = None,
     policy: ContainerConfig | None = None,
     strict_evidence_roots: bool = False,
+    keys_path: str | None = None,
 ) -> ContainerInfo:
     """Create a new DEFAIR forensic container.
 
@@ -180,6 +181,8 @@ async def create_container(
         env: Environment variables to set in the container.
         policy: Container policy (image allowlist, evidence roots, hardening).
         strict_evidence_roots: Refuse mounts when no evidence root is configured.
+        keys_path: Host directory of private keys (DFIR-ORC / Generaptor),
+            mounted read-only at /keys; must be under ``policy.key_roots``.
 
     Returns:
         ContainerInfo with the created container details.
@@ -192,6 +195,11 @@ async def create_container(
             evidence_paths or [], policy, strict=strict_evidence_roots and bool(evidence_paths),
         )
     ]
+
+    keys_dir = None
+    if keys_path:
+        key_policy = policy.model_copy(update={"evidence_roots": policy.key_roots})
+        (keys_dir,) = validate_evidence_paths([keys_path], key_policy, strict=True)
 
     def _create() -> ContainerInfo:
         client = _get_client()
@@ -232,6 +240,9 @@ async def create_container(
                         "bind": f"/evidence/{ev.name}",
                         "mode": "ro",
                     }
+
+        if keys_dir:
+            volumes[str(keys_dir)] = {"bind": "/keys", "mode": "ro"}
 
         # Labels for identification
         labels = {

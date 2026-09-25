@@ -150,7 +150,14 @@ async def discover_artifacts(
                     "description": "Sigma-based threat detection (hunt_evtx)",
                 })
 
+    from defair.sources.detect import detect_source
+
+    source = await asyncio.to_thread(detect_source, path)
+    if platform == "unknown" and source.platform != "unknown":
+        platform = source.platform
+
     result = {
+        "source": source.model_dump(),
         "platform": platform,
         "hostname": hostname,
         "evidence_path": evidence_path,

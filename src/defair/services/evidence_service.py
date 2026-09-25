@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,15 +31,19 @@ async def add_evidence(
 ) -> Evidence:
     """Register a new piece of evidence in a case.
 
-    Computes SHA-256 hash of the file and stores metadata.
-    The original file is never modified or copied.
+    A file is hashed (SHA-256); a directory — a triage collection — gets a
+    tree hash (see :func:`compute_tree_hash`). The source format is detected
+    and stored. The original is never modified or copied.
     """
+    from defair.sources.detect import detect_source
+
     file_path = Path(path).resolve()
 
     if not file_path.exists():
         raise FileNotFoundError(f"Evidence file not found: {file_path}")
-    if not file_path.is_file():
-        raise ValueError(f"Evidence path is not a file: {file_path}")
+    is_dir = file_path.is_dir()
+    if is_dir and evidence_type == "other":
+        evidence_type = EvidenceType.COLLECTION.value
 
     # Verify case exists
     cursor = await conn.execute("SELECT id FROM cases WHERE id = ? OR case_number = ?", (case_id, case_id))
@@ -47,9 +52,13 @@ async def add_evidence(
         raise ValueError(f"Case not found: {case_id}")
     resolved_case_id = case_row["id"]
 
-    # Compute SHA-256 (offloaded to thread for large files)
-    sha256 = await asyncio.to_thread(_compute_sha256, file_path)
-    size_bytes = file_path.stat().st_size
+    # Compute SHA-256 / tree hash (offloaded to a thread for large evidence)
+    if is_dir:
+        sha256, size_bytes = await asyncio.to_thread(compute_tree_hash, file_path)
+    else:
+        sha256 = await asyncio.to_thread(_compute_sha256, file_path)
+        size_bytes = file_path.stat().st_size
+    source = await asyncio.to_thread(detect_source, file_path)
 
     # Get next evidence number
     cursor = await conn.execute(
@@ -70,14 +79,16 @@ async def add_evidence(
         filename=file_path.name,
         size_bytes=size_bytes,
         sha256=sha256,
+        source_kind=source.kind,
+        source_info=source.model_dump(),
         registered_at=datetime.now(UTC),
     )
 
     await conn.execute(
         """INSERT INTO evidence
            (id, evidence_number, case_id, type, original_path, filename,
-            size_bytes, sha256, read_only, registered_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            size_bytes, sha256, read_only, registered_at, source_kind, source_info)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             evidence.id,
             evidence.evidence_number,
@@ -89,6 +100,8 @@ async def add_evidence(
             evidence.sha256,
             1,  # read_only = True
             evidence.registered_at.isoformat(),
+            evidence.source_kind,
+            json.dumps(evidence.source_info),
         ),
     )
     await conn.commit()
@@ -199,7 +212,10 @@ async def verify_evidence(
         )
         return result
 
-    current_sha256 = await asyncio.to_thread(_compute_sha256, file_path)
+    if file_path.is_dir():
+        current_sha256, _ = await asyncio.to_thread(compute_tree_hash, file_path)
+    else:
+        current_sha256 = await asyncio.to_thread(_compute_sha256, file_path)
     verified = current_sha256 == evidence.sha256
 
     if verified:
@@ -243,8 +259,34 @@ def _row_to_evidence(row: aiosqlite.Row) -> Evidence:
         size_bytes=row["size_bytes"],
         sha256=row["sha256"],
         read_only=bool(row["read_only"]),
+        source_kind=_col(row, "source_kind"),
+        source_info=json.loads(_col(row, "source_info") or "{}"),
+        prepared=json.loads(_col(row, "prepared") or "{}"),
         registered_at=datetime.fromisoformat(row["registered_at"]),
     )
+
+
+def _col(row: aiosqlite.Row, name: str):
+    return row[name] if name in row.keys() else None  # noqa: SIM118 — sqlite Row, not a dict
+
+
+def compute_tree_hash(root: Path) -> tuple[str, int]:
+    """Integrity hash of a directory tree.
+
+    SHA-256 over the sorted lines ``<relative path>\0<file sha256>\n`` —
+    any added, removed, renamed or modified file changes it. Returns the hash
+    and the total size in bytes.
+    """
+    lines = []
+    total = 0
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = path.relative_to(root).as_posix()
+        lines.append(f"{rel}\0{_compute_sha256(path)}\n")
+        total += path.stat().st_size
+    h = hashlib.sha256()
+    for line in lines:
+        h.update(line.encode("utf-8", errors="surrogateescape"))
+    return h.hexdigest(), total
 
 
 def _compute_sha256(file_path: Path) -> str:

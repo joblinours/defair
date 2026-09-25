@@ -23,6 +23,8 @@ def container_group() -> None:
 @click.option("--image", default=container_service.DEFAULT_IMAGE, help="Docker image to use.")
 @click.option("--evidence", "-e", multiple=True, help="Evidence path(s) to mount read-only.")
 @click.option("--workspace", default=None, help="Custom workspace path.")
+@click.option("--keys", "keys_path", default=None,
+              help="Host directory of private keys (DFIR-ORC / Generaptor), mounted read-only at /keys.")
 @click.option("--start/--no-start", default=True, help="Start container after creation.")
 @click.pass_context
 def container_create(
@@ -32,6 +34,7 @@ def container_create(
     image: str,
     evidence: tuple[str, ...],
     workspace: str | None,
+    keys_path: str | None,
     start: bool,
 ) -> None:
     """Create a new forensic container.
@@ -49,6 +52,7 @@ def container_create(
                 evidence_paths=list(evidence) if evidence else None,
                 workspace=workspace,
                 policy=ctx.obj["config"].container,
+                keys_path=keys_path,
             )
         except ConnectionError as e:
             console.print(f"[red]✗ Docker error:[/red] {e}")

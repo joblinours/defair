@@ -20,6 +20,9 @@ dependencies = [
     "libscca-python>=20240120",
     "evtx>=0.8",
     "LnkParse3>=1.5",
+    "pyzipper>=0.3.6",
+    "py7zr>=0.21",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
@@ -55,3 +58,5 @@ line-length = 100
 "src/defair/normalizers/*" = ["BLE001"]
 "src/defair/tools/base.py" = ["BLE001"]
 "src/defair/tools/prefetch.py" = ["BLE001"]
+# Dissect raises arbitrary exceptions on damaged filesystem entries: skip & go on
+"src/defair/sources/image.py" = ["BLE001", "S110", "S112"]

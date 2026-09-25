@@ -47,6 +47,23 @@ class ContainerConfig(BaseModel):
     pids_limit: int = 2048
     read_only_rootfs: bool = True
     tmpfs_size: str = "2g"
+    # Host directories private keys (DFIR-ORC / Generaptor) may be mounted from
+    key_roots: list[Path] = Field(default_factory=list)
+
+
+class ExtractionConfig(BaseModel):
+    """Limits when extracting archives / carving images (anti archive-bomb)."""
+
+    max_bytes: int = 200 * 1024**3
+    max_files: int = 1_000_000
+
+
+class OrchestratorConfig(BaseModel):
+    """Profile run execution."""
+
+    max_parallel: int = 4
+    default_timeout: int = 7200  # seconds per step
+    default_retries: int = 0
 
 
 class DefairConfig(BaseModel):
@@ -56,6 +73,8 @@ class DefairConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     mcp: McpConfig = McpConfig()
     container: ContainerConfig = ContainerConfig()
+    extraction: ExtractionConfig = ExtractionConfig()
+    orchestrator: OrchestratorConfig = OrchestratorConfig()
     timezone: str = "UTC"
 
     def resolve_paths(self) -> DefairConfig:
@@ -66,6 +85,7 @@ class DefairConfig(BaseModel):
         self.container.evidence_roots = [
             p.expanduser() for p in self.container.evidence_roots
         ]
+        self.container.key_roots = [p.expanduser() for p in self.container.key_roots]
         # Ensure DB directory exists
         self.storage.database.parent.mkdir(parents=True, exist_ok=True)
         return self

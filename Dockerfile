@@ -94,13 +94,15 @@ RUN cargo build --release --locked \
 FROM ${PYTHON_IMAGE} AS wheels
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential pkg-config \
+        build-essential pkg-config cmake \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src/ src/
-RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[forensic]"
+# ANSSI orc-decrypt (vendored, LGPL-2.1): Python module + compiled `unstream`
+COPY engines/orc-decrypt/ engines/orc-decrypt/
+RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[forensic]" ./engines/orc-decrypt
 
 # -----------------------------------------------------------------------------
 # Stage 4 — rules (pinned + verified detection rule sets)
@@ -141,14 +143,16 @@ COPY --from=fetch /out/ /
 RUN ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
 COPY --from=raijin-build /usr/local/bin/raijin /usr/local/bin/raijin-util /usr/local/bin/
 COPY engines/raijin/LICENSE engines/raijin/LICENSING.md /usr/share/doc/raijin/
+COPY engines/orc-decrypt/LICENSE.txt /usr/share/doc/orc-decrypt/LICENSE.txt
 COPY --from=rules /opt/defair/rules /opt/defair/rules
 
 COPY --from=wheels /wheels /tmp/wheels
-RUN pip install --no-cache-dir --no-index --find-links /tmp/wheels "defair[forensic]" \
+RUN pip install --no-cache-dir --no-index --find-links /tmp/wheels "defair[forensic]" anssi-orcdecrypt \
+    && command -v unstream \
     && rm -rf /tmp/wheels
 
 WORKDIR /app
-RUN mkdir -p /data /evidence /workspace /rules \
+RUN mkdir -p /data /evidence /workspace /rules /keys \
     && chmod 1777 /data /workspace \
     && touch /.dockerenv
 
