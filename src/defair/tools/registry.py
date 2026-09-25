@@ -97,20 +97,25 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.amcache_parser import AmcacheParserTool
     from defair.tools.appcompat_parser import AppCompatCacheParserTool
     from defair.tools.bstrings import BstringsTool
+    from defair.tools.chainsaw import ChainsawTool
     from defair.tools.dissect_plugin import DissectPluginTool
     from defair.tools.dissect_tool import DissectTool
     from defair.tools.evtx_native import EvtxNativeTool
     from defair.tools.evtxecmd import EvtxECmdTool
     from defair.tools.hayabusa import HayabusaTool
+    from defair.tools.iis_native import IisNativeTool
     from defair.tools.indx_native import IndxNativeTool
     from defair.tools.jlecmd import JLECmdTool
     from defair.tools.lecmd import LECmdTool
     from defair.tools.lnk_native import LnkNativeTool
     from defair.tools.logfile_native import LogFileNativeTool
     from defair.tools.mftecmd import MFTECmdTool
+    from defair.tools.mplog_native import MplogNativeTool
     from defair.tools.prefetch import PrefetchTool
+    from defair.tools.psreadline_native import PsReadLineNativeTool
     from defair.tools.raijin import RaijinTool
     from defair.tools.rbcmd import RBCmdTool
+    from defair.tools.rdpcache_native import RdpCacheNativeTool
     from defair.tools.recentfilecache import RecentFileCacheParserTool
     from defair.tools.recmd import RECmdTool
     from defair.tools.rla import RlaTool
@@ -118,6 +123,8 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.sqlecmd import SQLECmdTool
     from defair.tools.srumecmd import SrumECmdTool
     from defair.tools.sumecmd import SumECmdTool
+    from defair.tools.tasks_native import TasksNativeTool
+    from defair.tools.webcache_native import WebCacheNativeTool
     from defair.tools.wxtcmd import WxTCmdTool
 
     registry = ToolRegistry()
@@ -147,6 +154,13 @@ def get_default_registry() -> ToolRegistry:
         RlaTool,
         IndxNativeTool,
         LogFileNativeTool,
+        MplogNativeTool,
+        PsReadLineNativeTool,
+        TasksNativeTool,
+        WebCacheNativeTool,
+        RdpCacheNativeTool,
+        IisNativeTool,
+        ChainsawTool,
     ]:
         registry.register(tool_cls())
 

@@ -1,0 +1,144 @@
+# DEFAIR typed EVTX views — filtered, column-projected views over the EVTX
+# artifacts already in the case (EvtxECmd, native parser or Dissect), in
+# place of per-EventID CSV files.
+#
+# views:
+#   <name>:
+#     description: what the view answers
+#     match:                       # an event matches any entry
+#       - {channel: <Channel>, event_ids: [<id>, ...]}   # channel "*" = any
+#     columns:                     # output column → EventData field(s),
+#       <column>: [Field, Alt]     # first non-empty wins
+#
+# Add a view here — no code change needed.
+
+views:
+  logons:
+    description: Successful / failed logons, logoffs, explicit credentials and admin logons
+    match:
+      - {channel: Security, event_ids: [4624, 4625, 4634, 4647, 4648, 4672]}
+    columns:
+      user: [TargetUserName, SubjectUserName]
+      domain: [TargetDomainName, SubjectDomainName]
+      logon_type: [LogonType]
+      source_ip: [IpAddress]
+      source_host: [WorkstationName]
+      process: [ProcessName]
+      auth_package: [AuthenticationPackageName, LmPackageName]
+      logon_id: [TargetLogonId, SubjectLogonId]
+      failure_status: [Status, SubStatus]
+
+  process_creation:
+    description: Processes started (Security 4688, Sysmon 1) with their command lines
+    match:
+      - {channel: Security, event_ids: [4688]}
+      - {channel: Microsoft-Windows-Sysmon/Operational, event_ids: [1]}
+    columns:
+      process: [NewProcessName, Image]
+      command_line: [CommandLine]
+      parent: [ParentProcessName, ParentImage]
+      parent_command_line: [ParentCommandLine]
+      user: [SubjectUserName, TargetUserName, User]
+      hashes: [Hashes]
+      pid: [NewProcessId, ProcessId]
+
+  services:
+    description: Services installed (possible persistence / PsExec-style lateral movement)
+    match:
+      - {channel: System, event_ids: [7045, 7040]}
+      - {channel: Security, event_ids: [4697]}
+    columns:
+      service: [ServiceName, param1]
+      image_path: [ImagePath, ServiceFileName]
+      start_type: [StartType, ServiceStartType, param3]
+      account: [AccountName, ServiceAccount]
+
+  scheduled_tasks:
+    description: Scheduled task creation, update, deletion and runs
+    match:
+      - {channel: Security, event_ids: [4698, 4699, 4700, 4701, 4702]}
+      - {channel: Microsoft-Windows-TaskScheduler/Operational, event_ids: [106, 140, 141, 200, 201]}
+    columns:
+      task: [TaskName]
+      user: [SubjectUserName, UserContext, UserName]
+      action: [ActionName]
+      content: [TaskContent, TaskContentNew]
+
+  rdp:
+    description: Remote Desktop authentications, session logons / reconnects / disconnects
+    match:
+      - {channel: Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational, event_ids: [1149]}
+      - {channel: Microsoft-Windows-TerminalServices-LocalSessionManager/Operational, event_ids: [21, 22, 24, 25]}
+      - {channel: Security, event_ids: [4778, 4779]}
+    columns:
+      user: [Param1, User, AccountName]
+      domain: [Param2, AccountDomain]
+      source_ip: [Param3, Address, ClientAddress]
+      session: [SessionID, SessionName]
+
+  powershell:
+    description: PowerShell script blocks and module logging
+    match:
+      - {channel: Microsoft-Windows-PowerShell/Operational, event_ids: [4103, 4104]}
+      - {channel: Windows PowerShell, event_ids: [400, 403, 600]}
+    columns:
+      script: [ScriptBlockText, Payload]
+      path: [Path]
+      script_block_id: [ScriptBlockId]
+      context: [ContextInfo, HostApplication]
+
+  account_changes:
+    description: Accounts created / enabled / deleted, password resets, group membership changes
+    match:
+      - {channel: Security, event_ids: [4720, 4722, 4723, 4724, 4725, 4726, 4728, 4732, 4738, 4740, 4756]}
+    columns:
+      target_user: [TargetUserName, MemberName]
+      target_domain: [TargetDomainName]
+      group: [GroupName]
+      member_sid: [MemberSid]
+      by_user: [SubjectUserName]
+
+  log_cleared:
+    description: Event logs cleared (anti-forensics)
+    match:
+      - {channel: Security, event_ids: [1102]}
+      - {channel: System, event_ids: [104]}
+    columns:
+      user: [SubjectUserName, param1]
+      log: [Channel, param2]
+
+  defender:
+    description: Defender detections, actions and protection / configuration changes
+    match:
+      - {channel: Microsoft-Windows-Windows Defender/Operational, event_ids: [1116, 1117, 5001, 5007]}
+    columns:
+      threat: [Threat Name, ThreatName]
+      path: [Path]
+      action: [Action Name, ActionName]
+      user: [Detection User, DetectionUser]
+      process: [Process Name, ProcessName]
+      old_value: [Old Value, OldValue]
+      new_value: [New Value, NewValue]
+
+  network_shares:
+    description: SMB share and share object access (lateral movement)
+    match:
+      - {channel: Security, event_ids: [5140, 5145]}
+    columns:
+      user: [SubjectUserName]
+      source_ip: [IpAddress]
+      share: [ShareName]
+      target: [RelativeTargetName]
+      access: [AccessList]
+
+  kerberos_ntlm:
+    description: Kerberos ticket requests and NTLM validations (Kerberoasting, pass-the-hash)
+    match:
+      - {channel: Security, event_ids: [4768, 4769, 4771, 4776]}
+    columns:
+      user: [TargetUserName]
+      service: [ServiceName]
+      source_ip: [IpAddress]
+      encryption: [TicketEncryptionType]
+      status: [Status]
+      workstation: [Workstation]

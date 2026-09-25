@@ -52,6 +52,18 @@ steps:
     input: usnjrnl
     options: {mft_path: $mft}
     fallbacks: [{tool: dissect_plugin, plugin: usnjrnl, input: target}]
+  - id: tasks
+    tool: tasks_native
+    input: tasks_dir
+    fallbacks: [{tool: dissect_plugin, plugin: tasks, input: target}]
+  - id: psreadline
+    tool: psreadline_native
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: powershell_history, input: target}]
+  - id: mplog
+    tool: mplog_native
+    input: mplog_dir
+    fallbacks: [{tool: dissect_plugin, plugin: defender.mplog, input: target}]
   - id: scan
     action: scan
     input: base
@@ -60,4 +72,5 @@ steps:
   - id: timeline
     action: timeline_summary
     needs: [evtx, hunt, prefetch, amcache, shimcache, registry, recentfilecache, lnk, mft,
-            usnjrnl, scan]
+            usnjrnl,
+            tasks, psreadline, mplog, scan]

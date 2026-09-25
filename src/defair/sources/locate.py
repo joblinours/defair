@@ -25,6 +25,9 @@ Selectors (the ``input`` of a profile step):
 ``lnk_files``           loose .lnk files (outside Users)
 ``recentfilecache``     RecentFileCache.bcf (Windows 7)
 ``sum_dir``             ``Windows/System32/LogFiles/Sum`` (UAL, Windows Server)
+``tasks_dir``           ``Windows/System32/Tasks`` (Scheduled Task XML)
+``mplog_dir``           Defender ``Support`` folder (MPLog-*.log)
+``iis_logs``            ``inetpub/logs/LogFiles`` (IIS W3C logs)
 ======================  =====================================================
 """
 
@@ -52,6 +55,9 @@ ROOT_PATHS: dict[str, list[tuple[str, ...]]] = {
     "srum": [("Windows", "System32", "sru", "SRUDB.dat")],
     "recentfilecache": [("Windows", "AppCompat", "Programs", "RecentFileCache.bcf")],
     "sum_dir": [("Windows", "System32", "LogFiles", "Sum")],
+    "tasks_dir": [("Windows", "System32", "Tasks")],
+    "mplog_dir": [("ProgramData", "Microsoft", "Windows Defender", "Support")],
+    "iis_logs": [("inetpub", "logs", "LogFiles")],
 }
 
 
@@ -144,9 +150,13 @@ def locate_artifacts(base: str | Path, root: str | Path | None = None) -> dict[s
             _add(found, "mft", path)
         elif name == "$logfile":
             _add(found, "logfile", path)
+        elif name.startswith("mplog-") and name.endswith(".log"):
+            _add(found, "mplog_dir", path.parent)
+        elif name.startswith("u_ex") and name.endswith(".log"):
+            _add(found, "iis_logs", path.parent)
 
     # A directory already covered by a parent entry is redundant for -d tools
-    for selector in ("evtx_dir", "prefetch_dir"):
+    for selector in ("evtx_dir", "prefetch_dir", "iis_logs"):
         if selector in found:
             found[selector] = _collapse(found[selector])
     return found

@@ -13,6 +13,7 @@ from defair import __version__
 from defair.cli.cases import case_group, cases_group
 from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
+from defair.cli.evtx import evtx_group
 from defair.cli.findings import findings_group
 from defair.cli.hunt import hunt_cmd
 from defair.cli.normalize import normalize_group
@@ -177,3 +178,4 @@ cli.add_command(rules_group)
 cli.add_command(normalize_group)
 cli.add_command(profile_group)
 cli.add_command(run_group)
+cli.add_command(evtx_group)

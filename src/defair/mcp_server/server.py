@@ -1226,6 +1226,102 @@ async def hunt_evtx(
 
 
 @mcp.tool()
+async def hunt_chainsaw(
+    container: str,
+    input_path: str,
+    case_id: str,
+    evidence_id: str | None = None,
+    rule_profile: str = "precise",
+    min_severity: str = "medium",
+) -> str:
+    """Hunt EVTX with Chainsaw and the pinned, verified DEFAIR Sigma rules.
+
+    A second Sigma engine next to Raijin / Hayabusa, to cross-check
+    detections. Rules come from the rule store (profile "precise" = SigmaHQ
+    core + emerging threats, "broad" = every pinned Sigma source), re-verified
+    before the hunt; each finding carries the rule file, SHA-256 and source.
+
+    Args:
+        container: Container name.
+        input_path: EVTX file or directory inside the container.
+        case_id: Case number, name or ID.
+        evidence_id: Optional evidence ID.
+        rule_profile: "precise" or "broad".
+        min_severity: Lowest severity that becomes a finding.
+
+    Returns:
+        Hunt summary (run, detections, findings created).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="hunt_chainsaw", correlation_id=cid, container=container)
+    cmd = ["hunt", input_path, "--case", case_id, "--profile", "standard", "--engine", "chainsaw",
+           "--rule-profile", rule_profile, "--min-severity", min_severity]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def list_evtx_views() -> str:
+    """List the typed EVTX views (logons, process_creation, services, rdp, …).
+
+    Each view is a filtered, column-projected look at the EVTX artifacts of a
+    case (whichever parser produced them) — use get_evtx_view to read one.
+
+    Returns:
+        JSON list of views: name, description, matched events, columns.
+    """
+    import json
+
+    from defair.services.evtx_view_service import list_views
+
+    return json.dumps(list_views(), indent=2)
+
+
+@mcp.tool()
+async def get_evtx_view(
+    container: str,
+    case_id: str,
+    name: str,
+    since: str | None = None,
+    until: str | None = None,
+    host: str | None = None,
+    user: str | None = None,
+    event_id: int | None = None,
+    newest_first: bool = False,
+    limit: int = 200,
+    offset: int = 0,
+) -> str:
+    """Read one typed EVTX view for a case (e.g. "logons", "services").
+
+    Args:
+        container: Container name.
+        case_id: Case number, name or ID.
+        name: View name (see list_evtx_views).
+        since / until: ISO 8601 bounds.
+        host / user: Substring filters.
+        event_id: Only this EventID of the view.
+        newest_first: Reverse time order.
+        limit / offset: Paging.
+
+    Returns:
+        JSON: total, columns and rows (timestamp, event_id, computer, view
+        columns, artifact number).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_evtx_view", correlation_id=cid, container=container)
+    cmd = ["evtx", "view", name, "--case", case_id, "--limit", str(limit),
+           "--offset", str(offset), "--json"]
+    for flag, value in (("--since", since), ("--until", until), ("--host", host),
+                        ("--user", user), ("--event-id", event_id)):
+        if value is not None:
+            cmd.extend([flag, str(value)])
+    if newest_first:
+        cmd.append("--desc")
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
 async def build_timeline(container: str, case_id: str) -> str:
     """Build a timeline summary for a forensic case.
 

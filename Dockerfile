@@ -24,6 +24,7 @@ ARG PYTHON_IMAGE=python:3.13-slim
 FROM ${PYTHON_IMAGE} AS fetch
 
 ARG HAYABUSA_VERSION=4.1.0
+ARG CHAINSAW_VERSION=2.16.5
 ARG DOTNET_VERSION=9.0.20
 ARG DOTNET_SHA512=aaa63e9156fcc9d1c51e15fb38e3c5388a7721ef1b64065c8865b03133906e9de967ae33903c198c6acb9aa8bbae373e9001405074009c2ef2a0bb6e54b509a5
 
@@ -43,6 +44,8 @@ RUN set -eu; \
     done; \
     curl -sfL -o "hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip" \
         "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip"; \
+    curl -sfL -o "chainsaw-${CHAINSAW_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+        "https://github.com/WithSecureLabs/chainsaw/releases/download/v${CHAINSAW_VERSION}/chainsaw_x86_64-unknown-linux-gnu.tar.gz"; \
     sha256sum -c checksums.sha256; \
     curl -sfL -o dotnet.tar.gz \
         "https://builds.dotnet.microsoft.com/dotnet/Runtime/${DOTNET_VERSION}/dotnet-runtime-${DOTNET_VERSION}-linux-x64.tar.gz"; \
@@ -59,6 +62,9 @@ RUN set -eu; \
     cp "hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu" /out/usr/local/bin/hayabusa; \
     chmod +x /out/usr/local/bin/hayabusa; \
     cp -r hayabusa/rules hayabusa/config /out/opt/hayabusa/; \
+    mkdir -p /out/opt/chainsaw && tar -xzf "chainsaw-${CHAINSAW_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -C /tmp; \
+    install -m 0755 /tmp/chainsaw/chainsaw /out/usr/local/bin/chainsaw; \
+    cp -r /tmp/chainsaw/mappings /tmp/chainsaw/LICENCE /out/opt/chainsaw/; \
     python3 write_versions.py checksums.sha256 "${HAYABUSA_VERSION}" "${DOTNET_VERSION}"; \
     mkdir -p /out/opt/defair && cp /opt/defair/versions.json /out/opt/defair/
 

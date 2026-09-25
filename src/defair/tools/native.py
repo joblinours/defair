@@ -51,7 +51,11 @@ class NativeTool(BaseTool):
             return sorted(p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in self.suffixes)
         return [path]
 
+    #: the run's output directory (parsers that also write files, e.g. images)
+    output_dir: Path | None = None
+
     def _parse_all(self, input_path: str, out: Path) -> tuple[int, list[str]]:
+        self.output_dir = out
         count, errors = 0, []
         with (out / RESULTS_FILE).open("w", encoding="utf-8") as fh:
             for path in self._inputs(input_path):

@@ -119,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_findings_finding_number ON findings(finding_numbe
 # Schema migrations, applied in order on top of SCHEMA_SQL. Each step is
 # idempotent (columns are only added when missing), so databases created by
 # any earlier DEFAIR version upgrade in place.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _MIGRATION_COLUMNS: dict[int, list[tuple[str, str, str]]] = {
     2: [
@@ -171,6 +171,11 @@ CREATE TABLE IF NOT EXISTS profile_runs (
     completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_profile_runs_case ON profile_runs(case_id);
+""",
+    # v0.4.5 — typed EVTX views filter on the EventID kept in the provenance
+    4: """
+CREATE INDEX IF NOT EXISTS idx_artifacts_event_id
+    ON artifacts(case_id, CAST(json_extract(provenance, '$.event_id') AS INTEGER));
 """,
 }
 

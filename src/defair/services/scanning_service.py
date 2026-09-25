@@ -94,8 +94,9 @@ async def auto_create_findings(
     case_id: str,
     run_id: str,
     min_severity: str = "medium",
+    tool: str = "raijin",
 ) -> int:
-    """Create one finding per matching rule of a Raijin run.
+    """Create one finding per matching rule of a Raijin (or Chainsaw) run.
 
     Artifacts are grouped by (engine, rule source, rule id or name); the
     finding takes the highest severity of its matches and lists the rule's
@@ -104,8 +105,8 @@ async def auto_create_findings(
     threshold = SEVERITY_ORDER.index(min_severity) if min_severity in SEVERITY_ORDER else 2
     cursor = await conn.execute(
         """SELECT id, severity, data FROM artifacts
-        WHERE case_id = ? AND run_id = ? AND source_tool = 'raijin'""",
-        (case_id, run_id),
+        WHERE case_id = ? AND run_id = ? AND source_tool = ?""",
+        (case_id, run_id, tool),
     )
     rows = await cursor.fetchall()
 
@@ -159,7 +160,7 @@ async def auto_create_findings(
             description=description,
             severity=best,
             confidence="high" if engine == "yara" else "medium",
-            source=f"raijin-{engine}",
+            source=f"{tool}-{engine}",
             mitre_techniques=techniques,
             artifact_ids=[a["id"] for a in artifacts],
             detection_refs=[ref],

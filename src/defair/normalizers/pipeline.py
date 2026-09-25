@@ -66,7 +66,6 @@ TIMESTAMP_DESC: dict[str, str] = {
     "windows.rdp": "Cache Modified",
     "windows.iis": "Request Received",
     "windows.system": "Recorded",
-    "detection.chainsaw": "Event Logged",
 }
 
 ARTIFACT_COLUMNS = (

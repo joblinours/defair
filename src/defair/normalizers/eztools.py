@@ -819,18 +819,35 @@ from defair.normalizers.raijin import RaijinNormalizer
 
 NORMALIZER_MAP["raijin"] = RaijinNormalizer
 
+# Chainsaw (second Sigma engine, pinned rule store)
+from defair.normalizers.chainsaw import ChainsawNormalizer
+
+NORMALIZER_MAP["chainsaw"] = ChainsawNormalizer
+
 # Pure-Python fallback parsers
 from defair.normalizers.native import (
     EvtxNativeNormalizer,
+    IisNativeNormalizer,
     IndxNativeNormalizer,
     LnkNativeNormalizer,
     LogFileNativeNormalizer,
+    MplogNativeNormalizer,
+    PsReadLineNativeNormalizer,
+    RdpCacheNativeNormalizer,
+    TasksNativeNormalizer,
+    WebCacheNativeNormalizer,
 )
 
 NORMALIZER_MAP["evtx_native"] = EvtxNativeNormalizer
 NORMALIZER_MAP["lnk_native"] = LnkNativeNormalizer
 NORMALIZER_MAP["indx_native"] = IndxNativeNormalizer
 NORMALIZER_MAP["logfile_native"] = LogFileNativeNormalizer
+NORMALIZER_MAP["mplog_native"] = MplogNativeNormalizer
+NORMALIZER_MAP["psreadline_native"] = PsReadLineNativeNormalizer
+NORMALIZER_MAP["tasks_native"] = TasksNativeNormalizer
+NORMALIZER_MAP["webcache_native"] = WebCacheNativeNormalizer
+NORMALIZER_MAP["rdpcache_native"] = RdpCacheNativeNormalizer
+NORMALIZER_MAP["iis_native"] = IisNativeNormalizer
 
 # Dissect plugin records (fallback / engine=dissect)
 from defair.normalizers.dissect import DissectNormalizer

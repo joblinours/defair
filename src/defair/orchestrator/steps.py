@@ -231,6 +231,8 @@ async def _run_action(ctx: StepContext, step: Step) -> dict:
             result = await hunting_service.hunt_evtx(
                 ctx.conn, location, ctx.case_id, evidence_id=ctx.evidence_id,
                 output_base=ctx.output_base,
+                engine=step.options.get("engine", "hayabusa"),
+                rule_profile=step.options.get("rule_profile", "precise"),
             )
         else:  # scan
             result = await scanning_service.scan(

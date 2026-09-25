@@ -28,6 +28,10 @@ steps:
     tool: appcompatcacheparser
     input: system_hive
     fallbacks: [{tool: dissect_plugin, plugin: shimcache, input: target}]
+  - id: tasks
+    tool: tasks_native
+    input: tasks_dir
+    fallbacks: [{tool: dissect_plugin, plugin: tasks, input: target}]
   - id: scan
     action: scan
     input: base
@@ -35,4 +39,4 @@ steps:
     optional: true
   - id: timeline
     action: timeline_summary
-    needs: [evtx, hunt, registry, runkeys, amcache, shimcache, scan]
+    needs: [evtx, hunt, registry, runkeys, amcache, shimcache, tasks, scan]

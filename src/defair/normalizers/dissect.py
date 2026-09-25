@@ -45,6 +45,22 @@ TYPE_MAP: list[tuple[str, str, ArtifactCategory, tuple[str, ...]]] = [
     ("windows/jumplist", "windows.jumplist.auto_entry", ArtifactCategory.FILE_FOLDER_OPENING,
      ("target_path", "path")),
     ("browser/", "windows.browser.history", ArtifactCategory.BROWSER_USAGE, ("url", "title")),
+    ("powershell/history", "windows.powershell.history", ArtifactCategory.PROGRAM_EXECUTION,
+     ("command",)),
+    ("filesystem/windows/task/action/exec", "windows.scheduled_task.definition",
+     ArtifactCategory.PERSISTENCE, ("command", "task_name")),
+    ("filesystem/windows/task", "windows.scheduled_task.definition", ArtifactCategory.PERSISTENCE,
+     ("task_name", "uri")),
+    ("windows/defender/mplog", "windows.defender.mplog", ArtifactCategory.MALWARE,
+     ("threat", "detection", "process_image_name", "blocked_file")),
+    ("application/webserver/log/access", "windows.iis.request", ArtifactCategory.NETWORK_ACTIVITY,
+     ("uri", "remote_ip")),
+    ("windows/ual/client_access", "windows.ual.client_access", ArtifactCategory.ACCOUNT_USAGE,
+     ("authenticated_username", "address")),
+    ("windows/ual/role_access", "windows.ual.role_access", ArtifactCategory.SYSTEM_INFO,
+     ("role_name",)),
+    ("windows/registry/recentfilecache", "windows.recentfilecache.entry",
+     ArtifactCategory.PROGRAM_EXECUTION, ("path",)),
 ]
 
 MFT_TS_TYPES = {"B": "Created", "M": "Modified", "C": "MFT Entry Changed", "A": "Accessed"}
@@ -116,6 +132,9 @@ class DissectNormalizer(BaseNormalizer):
             artifact_type, category = info["artifact_type"], info["category"]
             tags = [f"mitre:{t}" for t in info["mitre"]]
             description = info["catalog_description"] or f"EventID {data.get('EventID')}"
+            # same keys as EvtxECmd / evtx_native (provenance, EVTX views)
+            data.setdefault("event_id", str(data.get("EventID", "")))
+            data.setdefault("channel", data.get("Channel", ""))
         else:
             description = next((str(data[f]) for f in desc_fields if data.get(f)), rtype)
 

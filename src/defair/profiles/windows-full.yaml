@@ -12,6 +12,12 @@ steps:
     action: hunt
     input: evtx_dir
     optional: true
+  - id: hunt_chainsaw
+    action: hunt
+    input: evtx_dir
+    options: {engine: chainsaw, rule_profile: broad}
+    optional: true
+    description: second Sigma engine on the pinned store (cross-check)
   - id: prefetch
     tool: prefetch
     input: prefetch_dir
@@ -93,6 +99,30 @@ steps:
     tool: sumecmd
     input: sum_dir
     fallbacks: [{tool: dissect_plugin, plugin: ual.client_access, input: target}]
+  - id: tasks
+    tool: tasks_native
+    input: tasks_dir
+    fallbacks: [{tool: dissect_plugin, plugin: tasks, input: target}]
+  - id: psreadline
+    tool: psreadline_native
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: powershell_history, input: target}]
+  - id: mplog
+    tool: mplog_native
+    input: mplog_dir
+    fallbacks: [{tool: dissect_plugin, plugin: defender.mplog, input: target}]
+  - id: webcache
+    tool: webcache_native
+    input: users_dir
+    fallbacks: [{tool: dissect_plugin, plugin: iexplore.history, input: target}]
+  - id: rdpcache
+    tool: rdpcache_native
+    input: users_dir
+    optional: true
+  - id: iis
+    tool: iis_native
+    input: iis_logs
+    fallbacks: [{tool: dissect_plugin, plugin: iis.access, input: target}]
   - id: scan
     action: scan
     input: base
@@ -100,5 +130,6 @@ steps:
     optional: true
   - id: timeline
     action: timeline_summary
-    needs: [evtx, hunt, prefetch, amcache, shimcache, registry, recentfilecache, userassist, lnk,
-            jumplists, shellbags, recyclebin, srum, wintimeline, browsers, mft, usnjrnl, logfile, indx_slack, ual, scan]
+    needs: [evtx, hunt, hunt_chainsaw, prefetch, amcache, shimcache, registry, recentfilecache, userassist, lnk,
+            jumplists, shellbags, recyclebin, srum, wintimeline, browsers, mft, usnjrnl, logfile, indx_slack, ual,
+            tasks, psreadline, mplog, webcache, rdpcache, iis, scan]
