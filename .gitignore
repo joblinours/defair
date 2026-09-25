@@ -34,3 +34,6 @@ htmlcov/
 
 # Evidences test
 evidence/*
+
+# External tools (reference sources, never committed)
+external_tool/

@@ -252,6 +252,15 @@ src/defair/
 
 DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and* its MCP exposure simultaneously.
 
+The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes such as [Hecatrace](https://github.com/syscall80h/hecatrace) — **without becoming one**. Each tool they ship is integrated the DEFAIR way:
+
+- **Wrapped, not exposed** — a `BaseTool` manifest + normalizer, never a raw binary reachable through MCP
+- **Structured, not dumped** — results land as artifacts, timeline events and findings in the case database, not as loose CSV/TXT files
+- **Specialized images, not a monolith** — heavy engines live in dedicated worker images (`worker-plaso`, `worker-malware`, `worker-memory`, …) pulled from GHCR
+- **Pinned, not `latest`** — every tool and rule set is version-pinned and hash-verified, and its version is recorded in each `ToolRun`
+- **Verified rule provenance** — every YARA / Sigma source (SigmaHQ, YARA Forge and community sets) is pinned by tag or commit and hash-verified file by file; no rule is ever silently overwritten
+- **Offline & isolated** — workers run without network, with dropped capabilities and resource limits
+
 ### ✅ v0.1 — Core + Evidence Manager
 
 - Case & Evidence models
@@ -269,12 +278,11 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - CLI: `container create/list/get/start/stop/exec/logs/remove`
 - MCP: `create_container`, `list_containers`, `get_container_info`, `start_container`, `stop_container`, `exec_in_container`, `container_logs`, `remove_container`
 - Persistent workspaces at `~/.defair/workspaces/`
-- AI agent can create, control, and run commands in forensic containers via MCP
 
 ### ✅ v0.2 — Windows foundation + MCP analysis
 
 - **Dissect** integration (host discovery, artifact identification)
-- **14 EZ Tools** with BaseTool wrappers + normalizers: MFTECmd, EvtxECmd, RECmd, PECmd, AmcacheParser, AppCompatCacheParser, JLECmd, LECmd, RBCmd, SBECmd, SrumECmd, WxTCmd, SQLECmd, bstrings
+- **13 EZ Tools** with BaseTool wrappers + normalizers: MFTECmd, EvtxECmd, RECmd, PECmd, AmcacheParser, AppCompatCacheParser, JLECmd, LECmd, RBCmd, SBECmd, SrumECmd, WxTCmd, SQLECmd
 - Normalization layer (BaseNormalizer → unified artifact schema)
 - Evidence discovery with automatic tool recommendations
 - MCP tools: `discover_evidence`, `analyze_evtx`, `analyze_mft`, `analyze_registry`, `analyze_prefetch`, `analyze_amcache`, `analyze_shimcache`, `analyze_jumplist`, `analyze_lnk`, `analyze_recyclebin`, `analyze_shellbags`, `analyze_srum`, `analyze_wintimeline`, `analyze_sqlite`
@@ -292,7 +300,7 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 
 ### ✅ v0.3.1 — Prefetch analysis fix
 
-- Replaced **PECmd** (Windows-only) with cross-platform Python-native Prefetch parser (`windowsprefetch`)
+- Replaced **PECmd** (Windows-only) with a cross-platform Prefetch parser based on **libscca**
 - `analyze_prefetch` MCP tool works end-to-end in Linux containers
 
 ### ✅ v0.3.5 — Mass YARA + Sigma scanning (current)
@@ -302,32 +310,154 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 - Default rule sets embedded in the container (YARA community rules + Hayabusa Sigma rules)
 - Custom rules mounting: bind-mount `/rules/yara/` and `/rules/sigma/` for custom rules
 - Scan results normalized as Findings with severity, confidence, and MITRE mapping
-- MCP tools: `scan_yara`, `scan_sigma`
-- CLI: `defair scan yara`, `defair scan sigma`
-- 209 tests, 16 tool wrappers
+- MCP: `scan_yara`, `scan_sigma` — CLI: `defair scan yara`, `defair scan sigma`
+- 212 tests, 16 tool wrappers
 
-### 📋 v0.4 — Orchestration + MCP profiles
+### 📋 v0.3.6 — Hardening + reproducible images
 
-- DAG-based analysis orchestration
-- Declarative profiles (`windows-triage`, `windows-full`, `ransomware`, `persistence`)
-- **Plaso** integration (supertimeline)
-- Worker scheduling, parallel jobs, retry, timeout
-- MCP tools: `run_profile`, `analyze_evidence`
+*Prerequisite: before adding more engines, make the platform match its own principles.*
+
+- **No shell via MCP, for real**: `exec_in_container` removed from MCP (or gated behind an explicit `mcp.allow_exec: false` config flag, off by default) — kept in the CLI for humans
+- **`run_tool` (MCP + CLI)** — run a *registered* tool with validated arguments, recorded as a `ToolRun` (replaces arbitrary exec for agents)
+- **Evidence allowlist** — `create_container` only mounts paths under configured evidence roots; image restricted to `ghcr.io/joblinours/defair*`
+- **Container hardening** — `cap_drop: ALL`, `no-new-privileges`, `network_mode: none`, CPU / memory / PIDs limits, read-only rootfs + tmpfs
+- **Dockerfile**: multi-stage build (downloads in a `builder` stage, no compilers in the runtime image)
+- **Pinned supply chain**: EZ Tools and Hayabusa pinned by version + SHA-256; tool versions stored in every `ToolRun` *(rule sets: see v0.3.7)*
+- **Analyst shell (CLI only)**: `defair container shell <case>` — interactive session in the case container, evidence `:ro`, never exposed via MCP *(≈ `hecatrace shell`)*
+
+### 📋 v0.3.7 — Raijin scan engine (vendored) + verified rule sets
+
+*[Raijin](external_tool/raijin-main/) (Rust, YARA-X + sigma-rust) is integrated **in-tree** and becomes the single engine behind `scan_yara` and `scan_sigma`.*
+
+**Engine**
+
+- Raijin source **vendored in the repository** (`engines/raijin/`) as a DEFAIR-maintained fork, built in a Rust `builder` stage (CI → GHCR) — licensing arrangement with the author recorded in `engines/raijin/LICENSING.md`
+- Run as a cold scanner only: `--lab --no-procs --no-tui --no-html --signatures /opt/defair/rules --jsonl …` — never live processes
+- Replaces **yara-python** + the **Yara-Rules/rules** bundle for YARA, and **Hayabusa** for mass Sigma scanning
+- Native layout detection (KAPE, Velociraptor, plain mount), original Windows path reconstructed, findings per matched event, ZIP content scanning
+- Raijin JSONL → normalizer → artifacts + findings (score → severity, MITRE tags from Sigma)
+
+**Rule sources — broad coverage**
+
+| Engine | Sources |
+|--------|---------|
+| YARA | YARA Forge (core / extended / full), Elastic protections-artifacts, ESET malware-ioc, ReversingLabs, Malpedia signator-rules, Neo23x0 signature-base, Trellix ATR |
+| Sigma | SigmaHQ (core / core+ / core++ / all + emerging-threats add-on), mdecrevoisier SIGMA-detection-rules, LOLRMM |
+
+- Selectable rule profiles per scan: `precise` (YARA Forge core + SigmaHQ core) or `broad` (every source)
+
+**Integrity — every source pinned and verified**
+
+- **`rules.lock`**, one entry per source: repo, release tag *or* **commit SHA** (never a branch), archive SHA-256, and a **per-file SHA-256 manifest** of the extracted rules (stable even if GitHub re-compresses the archive), plus the source license
+- Release assets verified against the GitHub release digest; branch-only sources fetched by pinned commit
+- Verified at build time **and** re-verified at scan time — missing, extra or modified rule file → scan refused
+- `raijin-util update` patched to be **lock-driven** (no hardcoded `latest` URLs); bumping the lock is a reviewed commit, CI diffs rule counts per source
+- Offline updates: `defair rules status` / `defair rules update --bundle <tar>` (bundle checked against the lock)
+
+**Collision handling — no rule silently overwritten**
+
+- **No basename flattening**: rules stored as `rules/<engine>/<source>/<original path>`, so two files with the same name in different folders or sources both survive
+- **YARA**: one namespace per source (identical rule names across sources no longer break compilation); cross-source duplicates resolved first-source-wins in a fixed, documented source order, at rule granularity
+- **Sigma**: deduplicated by rule `id` (UUID); same `id` with *different* content is reported as a conflict, not dropped silently
+- **`rules/CONFLICTS.json`** generated at build: every dropped duplicate and every conflict, with source, path and SHA-256
+- `raijin-util validate` in CI: unloadable rules listed per source; build fails if a source loses loadable rules versus the previous lock
+
+**Provenance in results**
+
+- Findings carry: source, release tag / commit, rule id / name, rule file path + SHA-256, rule license
+- **Custom rules** (`/rules/yara/`, `/rules/sigma/`) hashed and tagged `provenance: custom`, in their own namespace
+- `NOTICE` lists every embedded rule set with its license (DRL 1.1, Elastic License 2.0, MIT, BSD…)
+- MCP: `scan_yara`, `scan_sigma` (same names, new engine), `scan_evidence` (YARA + Sigma in one pass), `get_ruleset_info`, `list_rule_conflicts`
+- Hayabusa kept only for `hunt_evtx` timeline enrichment, its rule set (`Yamato-Security/hayabusa-rules`) recorded as its own pinned source
+
+### 📋 v0.3.8 — Preprocessing & normalization pipeline
+
+*Inspired by [ArtefactProcessor / PyTriage](external_tool/artefactprocessor-master/), adapted to DEFAIR's provenance model.*
+
+- **Two-stage normalization**: tool output → **normalized JSONL** in the workspace (`normalized/<artifact_type>/<source>.jsonl`, hashed) → **batched bulk insert** into the case database
+- **Replay without re-running tools**: `defair normalize replay --case CASE-xxx` rebuilds artifacts / timeline from the JSONL files (e.g. after a normalizer fix or DB loss)
+- **Common envelope on every record**: case, evidence, hostname, source file + original host path, channel / application slug, tool + version, `run_id`, record ID / offset
+- **Generic EVTX flattening**: `System` fields + `EventData` / `UserData` `Data@Name` → flat keys, raw record kept for traceability
+- **EventID knowledge base** (`evtx_catalog.yaml`): channel → EventID → description, artifact category, MITRE technique — drives descriptions and typed views
+- **Timeline-ready fields** on every event: `timestamp` (ISO 8601 UTC, full precision), `timestamp_desc` (Created / Modified / Executed / Logon…), `message` — Timesketch-compatible export
+- **Pure-Python fallback parsers** (EVTX, Prefetch, LNK, JumpList…) when an external tool fails or is unavailable
+- Per-run counters: records read / normalized / rejected, with rejection reasons
+- **Not copied from ArtefactProcessor**: lossy `dd/mm/YYYY HH:MM:SS` timestamps, `datetime.now()` substituted for missing timestamps (fabricated evidence), silently swallowed exceptions — DEFAIR keeps `null` + an explicit parse error
+
+### 📋 v0.4 — Evidence sources + Orchestration + MCP profiles
+
+- **Source auto-detection** in `discover_evidence`: Velociraptor, KAPE (ZIP / VHDX), FastIR, DFIR-ORC (encrypted `.7z.p7b`), Generaptor (encrypted ZIP), UAC (tar) collections, mounted filesystem, disk images (E01/Ex01, raw/dd, VHD/VHDX, VMDK, AFF) with automatic NTFS partition offset
+- **Image access through Dissect** (no FUSE mount, no `SYS_ADMIN`)
+- **Archive evidence**: ZIP collections (with or without password) registered and hashed as-is, extracted into the workspace
+- DAG-based analysis orchestration, bounded parallel workers, per-tool timeout and retry
+- Declarative profiles (`windows-triage`, `windows-full`, `ransomware`, `persistence`, `registry-only`)
+- **Run manifest** — every profile run writes a `run.json` (tools, versions, durations, errors), even on failure
+- CLI: `defair run --case CASE-xxx --profile windows-triage` *(≈ `hecatrace run -v -e`)*
+- MCP: `run_profile`, `analyze_evidence`, `get_run_status`
 - **🎯 Milestone: MVP MCP — an AI agent can conduct a full Windows investigation via MCP**
 
-### 📋 v0.5 — Reporting + API REST
+### 📋 v0.4.5 — Windows coverage completion
 
-- Forensic reports (Markdown, HTML)
+- **Remaining EZ Tools**: RecentFileCacheParser, SumECmd (UAL — Windows Server), bstrings, rla (dirty hive replay before RECmd)
+- **NTFS depth**: USN Journal (`$J`), `$I30` INDX slack (INDXRipper), `$LogFile`
+- **Extra Windows artefacts** (from ArtefactProcessor's KAPE plugin): Defender MPLog, PowerShell `ConsoleHost_history`, Scheduled Tasks XML, WebCache, RDP bitmap cache, IIS logs
+- **Typed EVTX views** — built on the v0.3.8 EventID catalog, YAML-driven routing (4624, 4625, 4688, 7045, 4698, …) exposed as filtered artifact views instead of CSV files
+- **Host profile** — hostname, OS build, users, timezone, network config, installed software, assembled from registry + Dissect *(≈ Hecatrace `systeminfo.txt`)*
+- **Keyword / IOC watchlists** — generic + per-case keyword lists, batch search over artifacts, timeline and raw strings (ripgrep-backed)
+- **Strings extraction** — ASCII + UTF-16LE from pagefile.sys, hiberfil.sys and unallocated space, indexed for IOC search
+- MCP: `analyze_usn`, `analyze_ual`, `hunt_chainsaw`, `get_host_profile`, `search_watchlist`
+
+### 📋 v0.5 — Supertimeline
+
+- **Plaso** (log2timeline + psort) in a dedicated `worker-plaso` image
+- **Sleuth Kit** bodyfile (`fls` → mactime) for fast filesystem timelines
+- Plaso events imported into the Timeline Engine (same schema as EZ Tools / Hayabusa events, with source provenance)
+- Incremental runs: existing `.plaso` storage reused unless `--overwrite`
+- MCP: `build_supertimeline`, `search_timeline` extended to Plaso sources
+
+### 📋 v0.6 — Reporting + REST API
+
+- Forensic reports (Markdown, HTML, JSON) — findings, host profile, timeline highlights, tool runs and versions
+- **Case export** — per-category CSV/JSONL tree for human review (Timeline Explorer, spreadsheets)
+- Optional export connectors: **Timesketch** (timeline) and **OpenSearch** (bulk JSONL) — the case database stays the source of truth
 - REST API (FastAPI + OpenAPI)
-- MCP tools: `generate_report`, `export_case`
+- MCP: `generate_report`, `export_case`
 
-### 📋 v0.6+ — Extended forensics
+### 📋 v0.7 — Malware & document triage
 
-- **Volatility 3** — memory forensics
+- Dedicated `worker-malware` image (offline, no network)
+- **File extraction** from evidence into the workspace with hash + source provenance (`extract_file`)
+- **capa** (capabilities), **FLOSS** (obfuscated strings), **pefile** (PE metadata), **ssdeep / TLSH** (fuzzy hashing)
+- **Documents**: oletools, oledump, pdfid, pdf-parser, **ExifTool** metadata
+- **ClamAV** with a pinned, offline signature database
+- YARA triage of extracted files through **Raijin** (same pinned rule sets as v0.3.7)
+- Results normalized as artifacts + findings (MITRE ATT&CK from capa)
+- MCP: `extract_file`, `triage_file`, `scan_clamav`
+
+### 📋 v0.8 — Memory forensics
+
+- **Volatility 3** in a dedicated `worker-memory` image (pinned symbol tables for offline use)
+- Profiles: `memory-triage` (pslist/pstree, cmdline, netscan, malfind, svcscan, dlllist)
+- Memory artifacts correlated with disk artifacts in the timeline and findings
+- YARA + strings on memory dumps
+- MCP: `analyze_memory`, `run_profile memory-triage`
+
+### 📋 v0.9 — Carving + deep disk
+
+- Dedicated `worker-carving` image: **bulk_extractor** (emails, URLs, IPs, credit cards…), **PhotoRec / foremost / scalpel**, **binwalk**
+- Carved items registered as derived evidence (parent evidence + offset + hash)
+- Image verification: `ewfverify`, `hashdeep` integrated into `verify_evidence`
+- MCP: `carve_evidence`, `run_bulk_extractor`
+- **🎯 Milestone: coverage parity with all-in-one DFIR toolboxes — with structured results, provenance and MCP access**
+
+### 📋 v0.10+ — Beyond parity
+
+- **Email**: PST/OST/MBOX parsing, attachment extraction, OCR on attachments
+- **Cloud & AD sources** (ArtefactProcessor plugins): DFIR-O365RC, Google Workspace, ADTimeline, ADAudit
 - **Zeek / TShark / Suricata** — network DFIR
-- **Linux DFIR** — journald, SSH, cron, systemd, Docker artifacts
+- **Linux DFIR** — journald, SSH, cron, systemd, Docker artifacts; configurable log globs (auth, audit, nginx, apache…); Sigma on Linux logs via Raijin
 - Web UI
-- RBAC, audit trail, supply chain security
+- RBAC, audit trail, SBOM + image signing
 
 ### 📋 v1.0 — DEFAIR
 
@@ -342,20 +472,27 @@ DEFAIR is built **MCP-first**: every phase delivers the forensic capability *and
 
 ---
 
-## Forensic engines (planned)
+## Forensic engines
 
-| Engine | Purpose | Phase | Status |
-|--------|---------|-------|--------|
-| **Dissect** | Host discovery, artifact identification, filesystem access | v0.2 | ✅ |
-| **EZ Tools** (14 tools) | Windows artifacts (MFT, EVTX, Registry, Prefetch, Amcache, ...) | v0.2 | ✅ |
-| **Hayabusa** | EVTX detection with 4000+ Sigma rules, MITRE ATT&CK | v0.3 | ✅ |
-| **YARA** | File/memory pattern matching, malware detection | v0.3.5 | 🔜 |
-| **Plaso** | Supertimeline, multi-source timestamp normalization | v0.4 | 📋 |
-| **Volatility 3** | Memory forensics (processes, network, DLLs, persistence) | v0.6 | 📋 |
-| **Chainsaw** | Fast EVTX search, Sigma detection | v0.6 | 📋 |
-| **Zeek** | Network traffic analysis, protocol logs | v0.6 | 📋 |
-| **TShark** | Packet capture analysis | v0.6 | 📋 |
-| **Suricata** | Network IDS, alert generation | v0.6 | 📋 |
+| Engine | Purpose | Worker image | Phase | Status |
+|--------|---------|--------------|-------|--------|
+| **Dissect** | Host discovery, artifact identification, image & filesystem access | `defair` | v0.2 | ✅ |
+| **EZ Tools** (13) | Windows artifacts (MFT, EVTX, Registry, Amcache, LNK, SRUM, ...) | `defair` | v0.2 | ✅ |
+| **Hayabusa** | EVTX hunting timeline (hayabusa-rules, distinct provenance) | `defair` | v0.3 | ✅ |
+| **YARA** (yara-python) | File/memory pattern matching — replaced by Raijin | `defair` | v0.3.5 | ✅ |
+| **Raijin** (vendored) | YARA-X + Sigma cold scanner, 10+ pinned rule sources | `defair` | v0.3.7 | 📋 |
+| **EZ Tools** (remaining) | RecentFileCacheParser, SumECmd, bstrings, rla | `defair` | v0.4.5 | 📋 |
+| **INDXRipper / USN parsing** | `$I30` slack, USN Journal | `defair` | v0.4.5 | 📋 |
+| **Plaso** | Supertimeline, multi-source timestamp normalization | `worker-plaso` | v0.5 | 📋 |
+| **Sleuth Kit** | Bodyfile / mactime filesystem timeline | `worker-plaso` | v0.5 | 📋 |
+| **capa / FLOSS / pefile** | Malware capabilities, obfuscated strings, PE metadata | `worker-malware` | v0.7 | 📋 |
+| **oletools / Didier Stevens suite / ExifTool** | Office, PDF and metadata triage | `worker-malware` | v0.7 | 📋 |
+| **ClamAV** | AV scanning (pinned offline signatures) | `worker-malware` | v0.7 | 📋 |
+| **Volatility 3** | Memory forensics (processes, network, DLLs, persistence) | `worker-memory` | v0.8 | 📋 |
+| **bulk_extractor / PhotoRec / foremost / scalpel** | Feature extraction and file carving | `worker-carving` | v0.9 | 📋 |
+| **Zeek / TShark / Suricata** | Network traffic analysis, IDS | `worker-network` | v0.10+ | 📋 |
+
+> **Out of scope:** acquisition tools (dc3dd, imaging) — DEFAIR analyses evidence, it does not acquire it.
 
 ---
 
