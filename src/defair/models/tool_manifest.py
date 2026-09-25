@@ -55,6 +55,8 @@ class ToolManifest(BaseModel):
     command: str = ""  # e.g. "/opt/eztools/MFTECmd" or "python -m dissect"
     runtime: str = "native"  # native, dotnet, python
     timeout: int = 3600  # Default timeout in seconds
+    # Exit codes meaning "ran fine" (e.g. scanners exit 2 when they match)
+    success_exit_codes: list[int] = Field(default_factory=lambda: [0])
     # Keyword options a caller (CLI --option / MCP run_tool) may pass
     allowed_options: list[str] = Field(default_factory=list)
 

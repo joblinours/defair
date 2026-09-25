@@ -1,0 +1,1029 @@
+use std::process;
+use std::collections::HashMap;
+use std::sync::Arc;
+use arrayvec::ArrayVec;
+use yara_x::{Scanner, Rules};
+use sysinfo::{System, Pid, Process, Uid, Users};
+use hex;
+use rayon::prelude::*;
+
+// Linux-specific I/O imports
+#[cfg(target_os = "linux")]
+use std::io::{Read, Seek, SeekFrom};
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::FileTypeExt;
+
+// macOS Mach memory access
+#[cfg(target_os = "macos")]
+use mach2::kern_return::KERN_SUCCESS;
+#[cfg(target_os = "macos")]
+use mach2::mach_port::mach_port_deallocate;
+#[cfg(target_os = "macos")]
+use mach2::message::mach_msg_type_number_t;
+#[cfg(target_os = "macos")]
+use mach2::port::mach_port_t;
+#[cfg(target_os = "macos")]
+use mach2::traps::{mach_task_self, task_for_pid};
+#[cfg(target_os = "macos")]
+use mach2::vm::{mach_vm_read_overwrite, mach_vm_region};
+#[cfg(target_os = "macos")]
+use mach2::vm_prot::VM_PROT_READ;
+#[cfg(target_os = "macos")]
+use mach2::vm_region::{vm_region_basic_info_64, VM_REGION_BASIC_INFO_64};
+#[cfg(target_os = "macos")]
+use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// Hashing imports
+use md5;
+use sha1::Sha1;
+use sha2::{Sha256, Digest};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{CloseHandle};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+#[cfg(target_os = "windows")]
+use std::ffi::c_void;
+
+use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags};
+
+use crate::{ScanConfig, GenMatch, C2IOC, check_c2_match, FilenameIOC, HashIOCCollections, find_hash_ioc};
+use crate::helpers::score::calculate_weighted_score;
+use crate::helpers::unified_logger::{UnifiedLogger, MatchReason, LogLevel};
+use crate::helpers::throttler::{throttle_start, throttle_end_with_limit};
+use crate::helpers::interrupt::ScanState;
+use crate::helpers::yara::{log_yara_scan_error, YaraScanTarget};
+
+use crate::modules::{ScanModule, ScanContext, ModuleResult};
+
+#[cfg(target_os = "macos")]
+static MACOS_MEM_SCAN_WARNING_LOGGED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug)]
+struct MacosMemStats {
+    task_for_pid_kr: i32,
+    regions_total: u64,
+    regions_readable: u64,
+    read_attempts: u64,
+    bytes_read: u64,
+    duration_ms: u128,
+}
+
+pub struct ProcessCheckModule;
+
+impl ScanModule for ProcessCheckModule {
+    fn name(&self) -> &'static str {
+        "ProcessCheck"
+    }
+
+    fn run(&self, context: &ScanContext) -> ModuleResult {
+        scan_processes(
+            context.compiled_rules,
+            context.scan_config,
+            context.c2_iocs,
+            context.filename_iocs,
+            context.hash_collections,
+            context.logger,
+            context.scan_state.as_ref()
+        )
+    }
+}
+
+// Scan process memory of all processes
+pub fn scan_processes(
+    compiled_rules: &Rules, 
+    scan_config: &ScanConfig, 
+    c2_iocs: &[C2IOC], 
+    filename_iocs: &Vec<FilenameIOC>,
+    hash_collections: &HashIOCCollections,
+    logger: &UnifiedLogger, 
+    scan_state: Option<&Arc<ScanState>>
+) -> (usize, usize, usize, usize, usize) {
+    
+    // Warn if platform is not fully supported for memory scanning
+    if cfg!(target_os = "macos") {
+        logger.warning("macOS process memory scanning is best-effort and typically requires debugging entitlements or elevated privileges. Most processes will not allow access.");
+    }
+
+    let cpu_limit = scan_config.cpu_limit;
+    let own_pid = process::id();
+    
+    // Get own executable path to exclude all processes running the same binary
+    // This is important on Linux where child processes (e.g., signal handlers) 
+    // share the same executable but have different PIDs
+    let own_exe = std::env::current_exe().ok();
+
+    // Refresh the process information
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    
+    // Create user map
+    let users = Users::new_with_refreshed_list();
+    let mut user_map: HashMap<Uid, String> = HashMap::new();
+    for user in &users {
+        user_map.insert(user.id().clone(), user.name().to_string());
+    }
+    
+    // Clone scan_state for use in parallel iteration
+    let scan_state_ref = scan_state.cloned();
+    
+    // Process in parallel
+    let (processes_scanned, processes_matched, alert_count, warning_count, notice_count) = sys.processes()
+        .par_iter()
+        .filter(|(pid, proc)| {
+            // Skip our own process ID
+            if pid.as_u32() == own_pid {
+                return false;
+            }
+            // Skip any process running the same executable as us (child processes, signal handlers, etc.)
+            if let Some(ref our_exe) = own_exe {
+                if let Some(proc_exe) = proc.exe() {
+                    if proc_exe == our_exe.as_path() {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .map(|(pid, process)| {
+            throttle_start();
+            let result = process_single_process(
+                pid, 
+                process, 
+                &user_map,
+                compiled_rules, 
+                scan_config, 
+                c2_iocs, 
+                filename_iocs,
+                hash_collections,
+                logger,
+                scan_state_ref.as_ref()
+            );
+            // Use dynamic CPU limit from ScanState if available
+            let current_cpu_limit = scan_state_ref.as_ref()
+                .map(|s| s.get_cpu_limit())
+                .unwrap_or(cpu_limit);
+            throttle_end_with_limit(current_cpu_limit);
+            result
+        })
+        .reduce(
+            || (0, 0, 0, 0, 0), 
+            |a, b| (
+                a.0 + b.0, 
+                a.1 + b.1, 
+                a.2 + b.2, 
+                a.3 + b.3, 
+                a.4 + b.4
+            )
+        );
+    
+    // Return summary statistics
+    (processes_scanned, processes_matched, alert_count, warning_count, notice_count)
+}
+
+fn process_single_process(
+    pid: &Pid, 
+    process: &Process, 
+    user_map: &HashMap<Uid, String>,
+    compiled_rules: &Rules, 
+    scan_config: &ScanConfig, 
+    c2_iocs: &[C2IOC], 
+    filename_iocs: &Vec<FilenameIOC>,
+    hash_collections: &HashIOCCollections,
+    logger: &UnifiedLogger,
+    scan_state: Option<&Arc<ScanState>>
+) -> (usize, usize, usize, usize, usize) {
+    let mut processes_scanned = 0;
+    let mut processes_matched = 0;
+    let mut alert_count = 0;
+    let mut warning_count = 0;
+    let mut notice_count = 0;
+
+    let pid_u32 = pid.as_u32();
+    let proc_name = process.name();
+    
+    // Convert process name to string for logging
+    let proc_name_str = proc_name.to_string_lossy().to_string();
+
+    // Check interrupt state
+    if let Some(state) = scan_state {
+        if state.should_stop() {
+            return (0, 0, 0, 0, 0);
+        }
+        state.wait_for_resume(); // Wait if menu is active
+        if state.should_stop() {
+            return (0, 0, 0, 0, 0);
+        }
+        state.set_current_element(format!("Process: {} (PID: {})", proc_name_str, pid_u32));
+        state.increment_processes();
+    }
+    
+    // Gather process details
+
+    let cmd_line = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+    let user_id = process.user_id();
+    let username = user_id.and_then(|uid| user_map.get(uid)).map(|s| s.as_str()).unwrap_or("unknown");
+    let ppid = process.parent().map(|p| p.as_u32().to_string()).unwrap_or("0".to_string());
+    let status = format!("{:?}", process.status());
+    
+    // Extended Metadata
+    let start_time = Some(process.start_time() as i64); // seconds since epoch
+    let run_time_secs = process.run_time(); // seconds
+    let run_time_str = format_runtime(run_time_secs);
+    let memory_bytes = process.memory();
+    let cpu_usage = process.cpu_usage();
+    
+    // Network info
+    let (connections, listening_ports) = get_process_network_info(pid_u32);
+    let connection_count = connections.len();
+    
+    // Compute hashes (if executable is readable)
+    let mut md5_hash = None;
+    let mut sha1_hash = None;
+    let mut sha256_hash = None;
+    
+    if let Some(exe_path) = process.exe() {
+        if exe_path.exists() && exe_path.is_file() {
+            // Best effort read
+            if let Ok(data) = std::fs::read(exe_path) {
+                md5_hash = Some(format!("{:x}", md5::compute(&data)));
+                sha1_hash = Some(hex::encode(Sha1::new().chain_update(&data).finalize()));
+                sha256_hash = Some(hex::encode(Sha256::new().chain_update(&data).finalize()));
+            }
+        }
+    }
+
+    // Log detailed process info at INFO level using structured context
+    // Console output will apply colors; JSONL/PlainText will be clean
+    let cmd_display = if cmd_line.chars().count() > 100 {
+        format!("{}...", cmd_line.chars().take(97).collect::<String>())
+    } else {
+        cmd_line.clone()
+    };
+    let mem_display = format!("{:.2} MB", memory_bytes as f64 / 1024.0 / 1024.0);
+    let cpu_display = format!("{:.2}%", cpu_usage);
+    let start_display = start_time.map(|t| t.to_string()).unwrap_or_else(|| "?".to_string());
+    let ports_display = if listening_ports.is_empty() { 
+        "none".to_string() 
+    } else {
+        let mut p_str = listening_ports.iter().take(20).map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
+        if listening_ports.len() > 20 { p_str.push_str(", [...]"); }
+        p_str
+    };
+    
+    // Build context for structured logging
+    let mut context: Vec<(&str, String)> = vec![
+        ("PID", pid_u32.to_string()),
+        ("PPID", ppid.clone()),
+        ("USER", username.to_string()),
+        ("STATUS", status.clone()),
+        ("CMD", cmd_display),
+        ("RUNTIME", run_time_str.clone()),
+        ("START", start_display),
+        ("MEM", mem_display),
+        ("CPU", cpu_display),
+    ];
+    
+    if let Some(h) = &md5_hash { context.push(("MD5", h.clone())); }
+    if let Some(h) = &sha1_hash { context.push(("SHA1", h.clone())); }
+    if let Some(h) = &sha256_hash { context.push(("SHA256", h.clone())); }
+    context.push(("CONN", connection_count.to_string()));
+    context.push(("LISTEN", ports_display));
+    
+    // Convert to the format expected by info_w
+    let context_refs: Vec<(&str, &str)> = context.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    
+    logger.info_w(&format!("ANALYZED: {}", proc_name_str), &context_refs);
+
+    // Debug output
+    logger.debug(&format!("Trying to scan process PID: {} PROC_NAME: {}", pid_u32, proc_name_str));
+    
+    // Count this as a process we attempted to scan
+    processes_scanned += 1;
+    
+    // ------------------------------------------------------------
+    // Matches (all types)
+    let mut proc_matches = ArrayVec::<GenMatch, 100>::new();
+    // ------------------------------------------------------------
+    
+    // 1. Filename IOCs (Command Line & Executable Path)
+    if !proc_matches.is_full() {
+        let exe_path = process.exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let cmd_line = process.cmd().iter().map(|x| x.to_string_lossy()).collect::<Vec<_>>().join(" ");
+        
+        for fioc in filename_iocs {
+            if proc_matches.is_full() { break; }
+            
+            let mut matched = false;
+            let mut match_source = "";
+            
+            // Check exe path
+            if !exe_path.is_empty() && fioc.regex.is_match(&exe_path) {
+                matched = true;
+                match_source = "Executable Path";
+            }
+            // Check command line
+            else if !cmd_line.is_empty() && fioc.regex.is_match(&cmd_line) {
+                matched = true;
+                match_source = "Command Line";
+            }
+            
+            if matched {
+                // Check false positive regex
+                let is_fp = if let Some(ref fp_regex) = fioc.regex_fp {
+                    ( !exe_path.is_empty() && fp_regex.is_match(&exe_path) ) || 
+                    ( !cmd_line.is_empty() && fp_regex.is_match(&cmd_line) )
+                } else {
+                    false
+                };
+                
+                if !is_fp {
+                    let match_message = format!("Filename IOC matched in {} PATTERN: {}", match_source, fioc.pattern);
+                    proc_matches.insert(
+                        proc_matches.len(),
+                        GenMatch { 
+                            message: match_message, 
+                            score: fioc.score,
+                            description: Some(fioc.description.clone()),
+                            author: None,
+                            reference: None,
+                            matched_strings: None, ..Default::default()
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    // 2. Hash IOCs (Executable File)
+    if !proc_matches.is_full() {
+        // Use pre-calculated hashes
+        let mut hash_match = None;
+        
+        if let Some(val) = &md5_hash {
+            if let Some(ioc) = find_hash_ioc(val, &hash_collections.md5_iocs) { hash_match = Some(ioc); }
+        }
+        if hash_match.is_none() {
+            if let Some(val) = &sha1_hash {
+                if let Some(ioc) = find_hash_ioc(val, &hash_collections.sha1_iocs) { hash_match = Some(ioc); }
+            }
+        }
+        if hash_match.is_none() {
+            if let Some(val) = &sha256_hash {
+                if let Some(ioc) = find_hash_ioc(val, &hash_collections.sha256_iocs) { hash_match = Some(ioc); }
+            }
+        }
+        
+        if let Some(ioc) = hash_match {
+            let match_message = format!("Process Executable Hash Match HASH: {}", ioc.hash_value);
+            proc_matches.insert(
+                proc_matches.len(),
+                GenMatch { 
+                    message: match_message, 
+                    score: ioc.score,
+                    description: Some(ioc.description.clone()),
+                    author: None,
+                    reference: None,
+                    matched_strings: None, ..Default::default()
+                }
+            );
+        }
+    }
+
+    // 3. YARA scanning (Memory)
+    // YARA-X: Create scanner and scan process memory
+    let mut scanner = Scanner::new(compiled_rules);
+    scanner.set_timeout(scan_config.yara_timeout);
+    
+    // Read process memory
+    #[cfg(target_os = "macos")]
+    let (mem_data, mem_stats) = read_process_memory(pid_u32);
+    #[cfg(target_os = "macos")]
+    {
+        let task_status = if mem_stats.task_for_pid_kr == KERN_SUCCESS {
+            "ok"
+        } else {
+            "denied"
+        };
+        if mem_stats.task_for_pid_kr != KERN_SUCCESS {
+            logger.info(&format!(
+                "macOS process memory access denied pid={} proc={} kern_return={}",
+                pid_u32,
+                proc_name_str,
+                mem_stats.task_for_pid_kr
+            ));
+        }
+        logger.debug(&format!(
+            "macOS memory scan pid={} proc={} bytes={} task_for_pid={} kern_return={} regions={} readable_regions={} read_attempts={} duration_ms={}",
+            pid_u32,
+            proc_name_str,
+            mem_data.len(),
+            task_status,
+            mem_stats.task_for_pid_kr,
+            mem_stats.regions_total,
+            mem_stats.regions_readable,
+            mem_stats.read_attempts,
+            mem_stats.duration_ms
+        ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let mem_data = read_process_memory(pid_u32);
+
+    if mem_data.is_empty() {
+        #[cfg(target_os = "macos")]
+        let yara_status = if mem_stats.task_for_pid_kr != KERN_SUCCESS {
+            "denied"
+        } else {
+            "skipped"
+        };
+        #[cfg(not(target_os = "macos"))]
+        let yara_status = "skipped";
+
+        logger.info(&format!(
+            "Process YARA scan result PID={} PROC_NAME={} RESULT={}",
+            pid_u32, proc_name_str, yara_status
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    if mem_data.is_empty() {
+        let already_logged = MACOS_MEM_SCAN_WARNING_LOGGED
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+        if already_logged {
+            logger.warning("macOS process memory access denied or unavailable for at least one process. Continuing with non-memory checks.");
+        }
+    }
+
+    if !mem_data.is_empty() {
+        match scanner.scan(&mem_data) {
+            Ok(scan_results) => {
+                logger.info(&format!(
+                    "Process YARA scan result PID={} PROC_NAME={} RESULT=scanned",
+                    pid_u32, proc_name_str
+                ));
+                logger.debug(&format!("YARA-X scan result for PID: {} PROC_NAME: {} RESULT: {:?}", pid_u32, proc_name_str, scan_results));
+            
+                for matching_rule in scan_results.matching_rules() {
+                    if !proc_matches.is_full() {
+                        let rule_id = matching_rule.identifier().to_string();
+
+                        let mut description = String::new();
+                        let mut author = String::new();
+                        let mut reference = String::new();
+                        let mut score = 75;
+
+                        for (key, value) in matching_rule.metadata() {
+                            match key {
+                                "description" => {
+                                    if let yara_x::MetaValue::String(s) = value {
+                                        description = s.to_string();
+                                    }
+                                }
+                                "author" => {
+                                    if let yara_x::MetaValue::String(s) = value {
+                                        author = s.to_string();
+                                    }
+                                }
+                                "reference" => {
+                                    if let yara_x::MetaValue::String(s) = value {
+                                        reference = s.to_string();
+                                    }
+                                }
+                                "score" => {
+                                    if let yara_x::MetaValue::Integer(i) = value {
+                                        let s = i as i16;
+                                        if s > 0 && s <= 100 {
+                                            score = s;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        let mut matched_strings: Vec<String> = Vec::new();
+                        for pattern in matching_rule.patterns() {
+                            for pattern_match in pattern.matches() {
+                                let identifier = pattern.identifier();
+                                let offset = pattern_match.range().start;
+                                let data = pattern_match.data();
+
+                                let value_str = if data.iter().all(|&b: &_| b.is_ascii() && (b >= 32 || b == 9 || b == 10 || b == 13)) {
+                                    match String::from_utf8(data.to_vec()) {
+                                        Ok(s) => format!("'{}'", s),
+                                        Err(_) => hex::encode(data)
+                                    }
+                                } else {
+                                    hex::encode(data)
+                                };
+
+                                matched_strings.push(format!("{}: {} @ {}", identifier, value_str, offset));
+                            }
+                        }
+
+                        let match_message = format!("YARA-X match with rule {}", rule_id);
+
+                        proc_matches.insert(
+                            proc_matches.len(),
+                            GenMatch {
+                                message: match_message,
+                                score,
+                                description: if description.is_empty() { None } else { Some(description) },
+                                author: if author.is_empty() { None } else { Some(author) },
+                                reference: if reference.is_empty() { None } else { Some(reference) },
+                                matched_strings: if matched_strings.is_empty() { None } else { Some(matched_strings) },
+                                ..Default::default()
+                            }
+                        );
+                    }
+                }
+            },
+            Err(error) => log_yara_scan_error(
+                logger,
+                &error,
+                YaraScanTarget::Process {
+                    pid: pid_u32,
+                    process_name: &proc_name_str,
+                },
+                scan_config.show_access_errors,
+            ),
+        }
+    }
+    
+    // ------------------------------------------------------------
+    // 4. C2 IOC Matching - Check process network connections
+    if !proc_matches.is_full() {
+        // reuse connections from earlier
+        for (remote_ip, remote_port) in &connections {
+            if let Some(c2_ioc) = check_c2_match(remote_ip, c2_iocs) {
+                let match_message = format!("C2 IOC match in remote address IP: {} PORT: {}", remote_ip, remote_port);
+                proc_matches.insert(
+                    proc_matches.len(),
+                    GenMatch {
+                        message: match_message,
+                        score: c2_ioc.score,
+                        description: Some(c2_ioc.description.clone()),
+                        author: None,
+                        reference: None,
+                        matched_strings: None, ..Default::default()
+                    }
+                );
+                logger.debug(&format!("C2 IOC match found PID: {} PROC_NAME: {} REMOTE: {}:{}", 
+                    pid_u32, proc_name_str, remote_ip, remote_port));
+            }
+        }
+    }
+
+    // Show matches on process
+    if !proc_matches.is_empty() {
+        processes_matched += 1;
+        
+        let sub_scores: Vec<i16> = proc_matches.iter().map(|m| m.score).collect();
+        let total_score = calculate_weighted_score(&sub_scores).round() as i16;
+        
+        let log_level = if total_score as f64 >= scan_config.alert_threshold as f64 {
+            alert_count += 1;
+            if let Some(state) = scan_state { state.add_alerts(1); }
+            LogLevel::Alert
+        } else if total_score as f64 >= scan_config.warning_threshold as f64 {
+            warning_count += 1;
+            if let Some(state) = scan_state { state.add_warnings(1); }
+            LogLevel::Warning
+        } else if total_score as f64 >= scan_config.notice_threshold as f64 {
+            notice_count += 1;
+            if let Some(state) = scan_state { state.add_notices(1); }
+            LogLevel::Notice
+        } else {
+            logger.debug(&format!("Process match below notice threshold PID: {} SCORE: {}", pid_u32, total_score));
+            return (processes_scanned, 0, 0, 0, 0);
+        };
+        
+        let reasons_to_show = std::cmp::min(proc_matches.len(), scan_config.max_reasons);
+        let shown_reasons: Vec<MatchReason> = proc_matches.iter().take(reasons_to_show)
+            .map(|r| MatchReason { 
+                message: r.message.clone(), 
+                score: r.score,
+                description: r.description.clone(),
+                author: r.author.clone(),
+                reference: r.reference.clone(),
+                matched_strings: r.matched_strings.clone(),
+                rule: r.rule.clone(),
+            })
+            .collect();
+        
+        // Unified Logging call
+        logger.process_match(
+            log_level,
+            pid_u32,
+            &proc_name_str,
+            total_score as f64,
+            shown_reasons,
+            // Extended metadata
+            (md5_hash, sha1_hash, sha256_hash),
+            start_time,
+            Some(run_time_str),
+            Some(memory_bytes),
+            Some(cpu_usage),
+            Some(connection_count),
+            Some(listening_ports)
+        );
+    }
+    
+    // Clear current element from status
+    if let Some(state) = scan_state {
+        state.clear_current_element();
+    }
+
+    (processes_scanned, processes_matched, alert_count, warning_count, notice_count)
+}
+
+// Helper to get process network info (connections and listening ports)
+fn get_process_network_info(pid: u32) -> (Vec<(String, u16)>, Vec<u16>) {
+    let mut connections = Vec::new();
+    let mut listening_ports = Vec::new();
+    
+    let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+    let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
+    
+    if let Ok(sockets) = get_sockets_info(af_flags, proto_flags) {
+        for socket in sockets {
+            if socket.associated_pids.contains(&pid) {
+                match socket.protocol_socket_info {
+                    netstat2::ProtocolSocketInfo::Tcp(tcp_info) => {
+                        if tcp_info.state == netstat2::TcpState::Listen {
+                            listening_ports.push(tcp_info.local_port);
+                        } else {
+                            // Remote connection
+                            let remote_ip = tcp_info.remote_addr.to_string();
+                            // Skip localhost and 0.0.0.0
+                            if remote_ip != "0.0.0.0" && remote_ip != "127.0.0.1" && remote_ip != "::1" && remote_ip != "::" {
+                                connections.push((remote_ip, tcp_info.remote_port));
+                            }
+                        }
+                    },
+                    netstat2::ProtocolSocketInfo::Udp(_udp_info) => {
+                         // Skip UDP for connections
+                    }
+                }
+            }
+        }
+    }
+    
+    listening_ports.sort();
+    listening_ports.dedup();
+    
+    (connections, listening_ports)
+}
+
+// Platform-specific memory reading
+#[cfg(target_os = "windows")]
+fn read_process_memory(pid: u32) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let max_buffer_size = 400 * 1024 * 1024; // 400 MB limit
+    
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 
+            false, 
+            pid
+        );
+        
+        if let Ok(handle) = handle {
+            if handle.is_invalid() {
+                return buffer;
+            }
+
+            let mut address: usize = 0;
+            let mut mem_info = MEMORY_BASIC_INFORMATION::default();
+            
+            while VirtualQueryEx(
+                handle, 
+                Some(address as *const c_void), 
+                &mut mem_info, 
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>()
+            ) != 0 {
+                // Check if we hit the limit
+                if buffer.len() >= max_buffer_size {
+                    break;
+                }
+                
+                // Only read committed memory
+                if mem_info.State == MEM_COMMIT && 
+                   (mem_info.Protect.0 & windows::Win32::System::Memory::PAGE_NOACCESS.0) == 0 &&
+                   (mem_info.Protect.0 & windows::Win32::System::Memory::PAGE_GUARD.0) == 0 {
+                    
+                    let remaining = max_buffer_size - buffer.len();
+                    let chunk_size = std::cmp::min(mem_info.RegionSize, remaining);
+                    if chunk_size == 0 {
+                        break;
+                    }
+
+                    let mut chunk = vec![0u8; chunk_size];
+                    let mut bytes_read: usize = 0;
+                    
+                    if ReadProcessMemory(
+                        handle, 
+                        mem_info.BaseAddress, 
+                        chunk.as_mut_ptr() as *mut c_void, 
+                        chunk_size, 
+                        Some(&mut bytes_read)
+                    ).is_ok() {
+                        chunk.truncate(bytes_read);
+                        buffer.extend_from_slice(&chunk);
+                    }
+                }
+                
+                address = (mem_info.BaseAddress as usize) + mem_info.RegionSize;
+            }
+            
+            let _ = CloseHandle(handle);
+        }
+    }
+    
+    buffer
+}
+
+#[cfg(target_os = "linux")]
+fn read_process_memory(pid: u32) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let max_buffer_size = 400 * 1024 * 1024; // 400 MB limit
+    
+    // Parse /proc/{pid}/maps to find readable regions
+    let maps_path = format!("/proc/{}/maps", pid);
+    let mem_path = format!("/proc/{}/mem", pid);
+    
+    let maps_content = match fs::read_to_string(&maps_path) {
+        Ok(c) => c,
+        Err(_) => return buffer,
+    };
+    
+    let mut mem_file = match fs::File::open(&mem_path) {
+        Ok(f) => f,
+        Err(_) => return buffer,
+    };
+    
+    for line in maps_content.lines() {
+        if buffer.len() >= max_buffer_size {
+            break;
+        }
+        
+        // Line format: 00400000-00452000 r-xp 00000000 08:02 173521 /usr/bin/dbus-daemon
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 2 { continue; }
+        
+        let range_str = parts[0];
+        let perms = parts[1];
+        let pathname = if parts.len() > 5 {
+            Some(parts[5..].join(" "))
+        } else {
+            None
+        };
+        
+        // Only read readable regions
+        if !should_scan_linux_mapping(perms, pathname.as_deref()) { continue; }
+        
+        let ranges: Vec<&str> = range_str.split('-').collect();
+        if ranges.len() != 2 { continue; }
+        
+        let start_addr = match u64::from_str_radix(ranges[0], 16) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+        let end_addr = match u64::from_str_radix(ranges[1], 16) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+        
+        let size = end_addr - start_addr;
+        if size == 0 { continue; }
+        
+        // Limit chunk size to avoid huge allocations
+        let read_size = std::cmp::min(size, (max_buffer_size - buffer.len()) as u64) as usize;
+        if read_size == 0 { break; }
+        
+        let mut chunk = vec![0u8; read_size];
+        
+        if mem_file.seek(SeekFrom::Start(start_addr)).is_ok() {
+            if let Ok(bytes_read) = mem_file.read(&mut chunk) {
+                chunk.truncate(bytes_read);
+                buffer.extend_from_slice(&chunk);
+            }
+        }
+    }
+    
+    buffer
+}
+
+#[cfg(target_os = "linux")]
+fn should_scan_linux_mapping(perms: &str, pathname: Option<&str>) -> bool {
+    if !perms.starts_with('r') {
+        return false;
+    }
+
+    let Some(pathname) = pathname.map(str::trim).filter(|path| !path.is_empty()) else {
+        return true;
+    };
+
+    // Skip kernel-provided pseudo mappings that do not carry useful user-mode content.
+    if pathname.starts_with("[vdso")
+        || pathname.starts_with("[vvar")
+        || pathname.starts_with("[vsyscall")
+        || pathname.starts_with("[vectors")
+    {
+        return false;
+    }
+
+    let stat_path = pathname.strip_suffix(" (deleted)").unwrap_or(pathname);
+
+    if let Ok(metadata) = fs::metadata(stat_path) {
+        let file_type = metadata.file_type();
+        if file_type.is_char_device() || file_type.is_block_device() {
+            return false;
+        }
+    } else if stat_path.starts_with("/dev/") && !stat_path.starts_with("/dev/shm/") {
+        // Device-backed VMAs are serviced by driver .access hooks; some drivers
+        // are unstable when these regions are read via /proc/<pid>/mem.
+        return false;
+    }
+
+    true
+}
+
+#[cfg(target_os = "macos")]
+fn read_process_memory(pid: u32) -> (Vec<u8>, MacosMemStats) {
+    let mut buffer = Vec::new();
+    let max_buffer_size = 400 * 1024 * 1024; // 400 MB limit
+    let start = std::time::Instant::now();
+
+    let mut stats = MacosMemStats {
+        task_for_pid_kr: 0,
+        regions_total: 0,
+        regions_readable: 0,
+        read_attempts: 0,
+        bytes_read: 0,
+        duration_ms: 0,
+    };
+
+    unsafe {
+        let mut task: mach_port_t = 0;
+        let kr = task_for_pid(mach_task_self(), pid as i32, &mut task);
+        stats.task_for_pid_kr = kr;
+        if kr != KERN_SUCCESS {
+            stats.duration_ms = start.elapsed().as_millis();
+            return (buffer, stats);
+        }
+
+        let mut address: mach_vm_address_t = 0;
+        loop {
+            if buffer.len() >= max_buffer_size {
+                break;
+            }
+
+            let mut size: mach_vm_size_t = 0;
+            let mut info: vm_region_basic_info_64 = std::mem::zeroed();
+            let mut info_count: mach_msg_type_number_t =
+                (std::mem::size_of::<vm_region_basic_info_64>() / std::mem::size_of::<u32>())
+                    as mach_msg_type_number_t;
+            let mut object_name: mach_port_t = 0;
+
+            let kr = mach_vm_region(
+                task,
+                &mut address,
+                &mut size,
+                VM_REGION_BASIC_INFO_64,
+                (&mut info as *mut vm_region_basic_info_64) as *mut _,
+                &mut info_count,
+                &mut object_name,
+            );
+
+            stats.regions_total += 1;
+            if kr != KERN_SUCCESS {
+                break;
+            }
+
+            let readable = (info.protection & VM_PROT_READ) != 0;
+            if readable && size > 0 {
+                stats.regions_readable += 1;
+                let remaining = max_buffer_size - buffer.len();
+                let read_size = std::cmp::min(size as usize, remaining);
+                if read_size == 0 {
+                    break;
+                }
+
+                let mut chunk = vec![0u8; read_size];
+                let mut out_size: mach_vm_size_t = 0;
+
+                let kr = mach_vm_read_overwrite(
+                    task,
+                    address,
+                    read_size as mach_vm_size_t,
+                    chunk.as_mut_ptr() as mach_vm_address_t,
+                    &mut out_size,
+                );
+
+                if kr == KERN_SUCCESS && out_size > 0 {
+                    chunk.truncate(out_size as usize);
+                    buffer.extend_from_slice(&chunk);
+                    stats.bytes_read += out_size as u64;
+                }
+                stats.read_attempts += 1;
+            }
+
+            if object_name != 0 {
+                let _ = mach_port_deallocate(mach_task_self(), object_name);
+            }
+
+            if size == 0 {
+                break;
+            }
+            address = address.saturating_add(size);
+        }
+
+        let _ = mach_port_deallocate(mach_task_self(), task);
+    }
+
+    stats.duration_ms = start.elapsed().as_millis();
+    (buffer, stats)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn read_process_memory(_pid: u32) -> Vec<u8> {
+    Vec::new()
+}
+
+// Helper to format runtime in d:h:m:s
+fn format_runtime(seconds: u64) -> String {
+    let days = seconds / 86400;
+    let hours = (seconds % 86400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    format!("{}d:{}h:{}m:{}s", days, hours, minutes, secs)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_process_memory_tests {
+    use super::should_scan_linux_mapping;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{}-{}-{}", prefix, std::process::id(), nanos))
+    }
+
+    #[test]
+    fn keeps_anonymous_and_heap_mappings() {
+        assert!(should_scan_linux_mapping("rw-p", None));
+        assert!(should_scan_linux_mapping("rw-p", Some("[heap]")));
+        assert!(should_scan_linux_mapping("rw-p", Some("[stack]")));
+    }
+
+    #[test]
+    fn skips_kernel_special_mappings() {
+        assert!(!should_scan_linux_mapping("r-xp", Some("[vdso]")));
+        assert!(!should_scan_linux_mapping("r--p", Some("[vvar]")));
+        assert!(!should_scan_linux_mapping("r-xp", Some("[vsyscall]")));
+    }
+
+    #[test]
+    fn skips_device_backed_mappings() {
+        assert!(!should_scan_linux_mapping("rw-s", Some("/dev/null")));
+        assert!(!should_scan_linux_mapping("rw-s", Some("/dev/nvidiactl")));
+    }
+
+    #[test]
+    fn keeps_regular_file_backed_mappings() {
+        let path = temp_path("raijin-proc-map");
+        fs::write(&path, b"ok").unwrap();
+
+        assert!(should_scan_linux_mapping("r-xp", Some(path.to_str().unwrap())));
+
+        let deleted_path = format!("{} (deleted)", path.display());
+        assert!(should_scan_linux_mapping("rw-p", Some(&deleted_path)));
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn allows_dev_shm_files_when_metadata_is_missing() {
+        assert!(should_scan_linux_mapping(
+            "rw-s",
+            Some("/dev/shm/raijin-nonexistent-shared-memory")
+        ));
+    }
+}

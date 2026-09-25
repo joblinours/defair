@@ -1201,81 +1201,158 @@ async def search_ioc(container: str, case_id: str, value: str) -> str:
     return await _proxy_defair(container, ["search", value, "--case", case_id])
 
 
-# ── Mass scanning tools (v0.3.5) ─────────────────────────────────────
+# ── Mass scanning tools (Raijin, v0.3.7) ─────────────────────────────
+
+
+def _scan_cmd(
+    subcommand: str, input_path: str, case_id: str, evidence_id: str | None,
+    profile: str, min_severity: str,
+    yara_rules_dir: str | None = None, sigma_rules_dir: str | None = None,
+) -> list[str]:
+    cmd = ["scan", subcommand, input_path, "--case", case_id,
+           "--profile", profile, "--min-severity", min_severity]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if yara_rules_dir:
+        cmd.extend(["--yara-rules-dir", yara_rules_dir])
+    if sigma_rules_dir:
+        cmd.extend(["--sigma-rules-dir", sigma_rules_dir])
+    return cmd
 
 
 @mcp.tool()
 async def scan_yara(
     container: str, input_path: str, case_id: str,
     evidence_id: str | None = None,
+    profile: str = "broad",
+    min_severity: str = "medium",
     rules_dir: str | None = None,
-    file_timeout: int = 60,
 ) -> str:
-    """Mass scan files with YARA rules.
+    """Mass scan every file under a path with YARA rules (Raijin / YARA-X).
 
-    Scans files and directories against YARA rules to detect malware,
-    suspicious patterns, and IOCs. Creates findings for each matching rule.
-
-    Built-in rules are at /opt/yara/rules/. Mount custom rules at /rules/yara/.
+    Rules come from the pinned, hash-verified rule store; the scan is refused
+    if any rule file differs from the lock. Creates one finding per matching
+    rule, with the rule's provenance (source, pinned ref, file, SHA-256, license).
 
     Args:
         container: Container name.
-        input_path: File or directory to scan.
+        input_path: File or directory to scan (e.g. /evidence).
         case_id: Case number.
         evidence_id: Optional evidence ID.
-        rules_dir: Additional custom YARA rules directory.
-        file_timeout: Per-file scan timeout in seconds.
+        profile: "precise" (YARA Forge core) or "broad" (YARA Forge full,
+                 Elastic, ESET, ReversingLabs, Malpedia, Neo23x0, ATR).
+        min_severity: Lowest severity that becomes a finding.
+        rules_dir: Custom YARA rules directory (default /rules/yara).
 
     Returns:
-        Scan results with match count and findings created.
+        Scan summary with match count and findings created.
     """
     cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="scan_yara", correlation_id=cid,
-             container=container)
-
-    cmd = ["scan", "yara", input_path, "--case", case_id, "--timeout", str(file_timeout)]
-    if evidence_id:
-        cmd.extend(["--evidence", evidence_id])
-    if rules_dir:
-        cmd.extend(["--rules-dir", rules_dir])
-    return await _proxy_defair(container, cmd)
+    log.info("mcp_tool_called", tool="scan_yara", correlation_id=cid, container=container)
+    return await _proxy_defair(container, _scan_cmd(
+        "yara", input_path, case_id, evidence_id, profile, min_severity, yara_rules_dir=rules_dir,
+    ))
 
 
 @mcp.tool()
 async def scan_sigma(
     container: str, input_path: str, case_id: str,
     evidence_id: str | None = None,
+    profile: str = "broad",
+    min_severity: str = "medium",
     rules_dir: str | None = None,
-    min_level: str = "medium",
 ) -> str:
-    """Mass scan EVTX files with Sigma rules via Hayabusa.
+    """Mass scan EVTX / Linux logs with Sigma rules (Raijin).
 
-    Scans all EVTX files in a directory against Sigma detection rules.
-    Creates findings for high/critical detections.
-
-    Built-in rules are at /opt/hayabusa/rules/. Mount custom rules at /rules/sigma/.
+    KAPE, Velociraptor and plain-mount layouts are detected automatically and
+    each detection keeps the original host path and event time. Rules are the
+    pinned, verified SigmaHQ / community sets.
 
     Args:
         container: Container name.
-        input_path: Directory containing EVTX files.
+        input_path: Directory containing the logs / collection.
         case_id: Case number.
         evidence_id: Optional evidence ID.
-        rules_dir: Custom Sigma rules directory.
-        min_level: Minimum detection level (informational/low/medium/high/critical).
+        profile: "precise" (SigmaHQ core + emerging threats) or "broad"
+                 (SigmaHQ all, mdecrevoisier, LOLRMM).
+        min_severity: Lowest severity that becomes a finding.
+        rules_dir: Custom Sigma rules directory (default /rules/sigma).
 
     Returns:
-        Scan results with detection count and findings created.
+        Scan summary with detection count and findings created.
     """
     cid = new_correlation_id()
-    log.info("mcp_tool_called", tool="scan_sigma", correlation_id=cid,
-             container=container)
+    log.info("mcp_tool_called", tool="scan_sigma", correlation_id=cid, container=container)
+    return await _proxy_defair(container, _scan_cmd(
+        "sigma", input_path, case_id, evidence_id, profile, min_severity, sigma_rules_dir=rules_dir,
+    ))
 
-    cmd = ["scan", "sigma", input_path, "--case", case_id, "--min-level", min_level]
-    if evidence_id:
-        cmd.extend(["--evidence", evidence_id])
-    if rules_dir:
-        cmd.extend(["--rules-dir", rules_dir])
-    return await _proxy_defair(container, cmd)
+
+@mcp.tool()
+async def scan_evidence(
+    container: str, input_path: str, case_id: str,
+    evidence_id: str | None = None,
+    profile: str = "broad",
+    min_severity: str = "medium",
+) -> str:
+    """Scan a path with YARA and Sigma in a single Raijin pass.
+
+    Args:
+        container: Container name.
+        input_path: Evidence directory (e.g. /evidence).
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        profile: "precise" or "broad" rule profile.
+        min_severity: Lowest severity that becomes a finding.
+
+    Returns:
+        Scan summary with match count and findings created.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="scan_evidence", correlation_id=cid, container=container)
+    return await _proxy_defair(container, _scan_cmd(
+        "evidence", input_path, case_id, evidence_id, profile, min_severity,
+    ))
+
+
+@mcp.tool()
+async def get_ruleset_info(container: str, verify: bool = False) -> str:
+    """Describe the detection rule sets available in a container.
+
+    Lists every pinned source (repo, release tag or commit, file count,
+    license, profiles) and whether it is installed. With verify=True, every
+    rule file is re-hashed against the lock.
+
+    Args:
+        container: Container name.
+        verify: Re-hash every rule file (slower).
+
+    Returns:
+        JSON with sources, profiles and integrity status.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_ruleset_info", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["rules", "status", "--json", *(["--verify"] if verify else [])])
+
+
+@mcp.tool()
+async def list_rule_conflicts(container: str, profile: str | None = None) -> str:
+    """List overlapping rules across sources.
+
+    Nothing is ever overwritten: this reports Sigma rules sharing an id
+    (identical copies, or conflicting content where the first source wins)
+    and YARA rule names shipped by several sources.
+
+    Args:
+        container: Container name.
+        profile: "precise" or "broad" (default: both).
+
+    Returns:
+        JSON report per profile.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="list_rule_conflicts", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["rules", "conflicts", *(["--profile", profile] if profile else [])])
 
 
 def main() -> None:

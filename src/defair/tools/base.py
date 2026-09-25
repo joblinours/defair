@@ -177,7 +177,7 @@ class BaseTool(ABC):
             tool_run.stdout = stdout_bytes.decode(errors="replace")
             tool_run.stderr = stderr_bytes.decode(errors="replace")
 
-            if proc.returncode == 0:
+            if proc.returncode in m.success_exit_codes:
                 tool_run.status = ToolRunStatus.COMPLETED
             else:
                 tool_run.status = ToolRunStatus.FAILED

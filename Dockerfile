@@ -2,10 +2,14 @@
 # DEFAIR — forensic worker image (built in CI, pulled from GHCR)
 # =============================================================================
 # Stages:
-#   fetch   → pinned downloads, every archive checked against
-#             docker/checksums.sha256 (build fails on any mismatch)
-#   wheels  → Python wheels, C extensions compiled here only
-#   final   → runtime image, no compiler, no download tooling
+#   fetch        → pinned downloads, every archive checked against
+#                  docker/checksums.sha256 (build fails on any mismatch)
+#   raijin-build → Raijin (engines/raijin) compiled from the vendored source
+#   wheels       → Python wheels, C extensions compiled here only
+#   rules        → `defair rules sync`: YARA / Sigma rule sets pinned in
+#                  src/defair/rules/lock, verified file by file, then
+#                  validated by raijin-util (build fails on any mismatch)
+#   final        → runtime image, no compiler, no download tooling
 #
 # Bumping a tool: update its ARG / docker/checksums.sha256 in a reviewed commit.
 # EZ Tools are served under unversioned URLs: an upstream release changes the
@@ -22,7 +26,6 @@ FROM ${PYTHON_IMAGE} AS fetch
 ARG HAYABUSA_VERSION=4.1.0
 ARG DOTNET_VERSION=9.0.20
 ARG DOTNET_SHA512=aaa63e9156fcc9d1c51e15fb38e3c5388a7721ef1b64065c8865b03133906e9de967ae33903c198c6acb9aa8bbae373e9001405074009c2ef2a0bb6e54b509a5
-ARG YARA_RULES_COMMIT=0f93570194a80d2f2032869055808b0ddcdfb360
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates unzip \
@@ -40,8 +43,6 @@ RUN set -eu; \
     done; \
     curl -sfL -o "hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip" \
         "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip"; \
-    curl -sfL -o yara-rules.zip \
-        "https://github.com/Yara-Rules/rules/archive/${YARA_RULES_COMMIT}.zip"; \
     sha256sum -c checksums.sha256; \
     curl -sfL -o dotnet.tar.gz \
         "https://builds.dotnet.microsoft.com/dotnet/Runtime/${DOTNET_VERSION}/dotnet-runtime-${DOTNET_VERSION}-linux-x64.tar.gz"; \
@@ -49,7 +50,7 @@ RUN set -eu; \
 
 # Unpack into the final layout
 RUN set -eu; \
-    mkdir -p /out/usr/share/dotnet /out/opt/eztools /out/opt/hayabusa /out/usr/local/bin /out/opt/yara/rules; \
+    mkdir -p /out/usr/share/dotnet /out/opt/eztools /out/opt/hayabusa /out/usr/local/bin; \
     tar -xzf dotnet.tar.gz -C /out/usr/share/dotnet; \
     for tool in $EZ_TOOLS; do \
         unzip -q -o "${tool}.zip" -d "/out/opt/eztools/${tool}"; \
@@ -58,8 +59,6 @@ RUN set -eu; \
     cp "hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu" /out/usr/local/bin/hayabusa; \
     chmod +x /out/usr/local/bin/hayabusa; \
     cp -r hayabusa/rules hayabusa/config /out/opt/hayabusa/; \
-    unzip -q yara-rules.zip -d yara-rules; \
-    cp -r yara-rules/rules-*/* /out/opt/yara/rules/; \
     python3 write_versions.py checksums.sha256 "${HAYABUSA_VERSION}" "${DOTNET_VERSION}"; \
     mkdir -p /out/opt/defair && cp /opt/defair/versions.json /out/opt/defair/
 
@@ -80,7 +79,17 @@ RUN set -eu; \
     done
 
 # -----------------------------------------------------------------------------
-# Stage 2 — wheels (compilers live here only)
+# Stage 2 — Raijin (vendored YARA-X + Sigma scanner, pinned Rust toolchain)
+# -----------------------------------------------------------------------------
+FROM rust:1.91.0-slim-bookworm AS raijin-build
+
+WORKDIR /build
+COPY engines/raijin/ ./
+RUN cargo build --release --locked \
+    && install -m 0755 target/release/raijin target/release/raijin-util /usr/local/bin/
+
+# -----------------------------------------------------------------------------
+# Stage 3 — wheels (compilers live here only)
 # -----------------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS wheels
 
@@ -94,7 +103,19 @@ COPY src/ src/
 RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[forensic]"
 
 # -----------------------------------------------------------------------------
-# Stage 3 — final runtime image
+# Stage 4 — rules (pinned + verified detection rule sets)
+# -----------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS rules
+
+COPY --from=wheels /wheels /tmp/wheels
+RUN pip install --no-cache-dir --no-index --find-links /tmp/wheels defair
+COPY --from=raijin-build /usr/local/bin/raijin-util /usr/local/bin/raijin-util
+COPY docker/validate_rules.py /tmp/validate_rules.py
+RUN defair rules sync --dest /opt/defair/rules \
+    && python3 /tmp/validate_rules.py /opt/defair/rules /usr/local/bin/raijin-util
+
+# -----------------------------------------------------------------------------
+# Stage 5 — final runtime image
 # -----------------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS final
 
@@ -108,6 +129,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DOTNET_ROOT=/usr/share/dotnet \
     PATH="${PATH}:/usr/share/dotnet" \
     EZTOOLS_DIR=/opt/eztools \
+    DEFAIR_RULES_STORE=/opt/defair/rules \
     DEFAIR_DB_PATH=/data/defair.db
 
 # Runtime libraries only: ICU for .NET globalization, sqlite3 for SBECmd/SQLECmd
@@ -117,6 +139,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=fetch /out/ /
 RUN ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+COPY --from=raijin-build /usr/local/bin/raijin /usr/local/bin/raijin-util /usr/local/bin/
+COPY engines/raijin/LICENSE engines/raijin/LICENSING.md /usr/share/doc/raijin/
+COPY --from=rules /opt/defair/rules /opt/defair/rules
 
 COPY --from=wheels /wheels /tmp/wheels
 RUN pip install --no-cache-dir --no-index --find-links /tmp/wheels "defair[forensic]" \

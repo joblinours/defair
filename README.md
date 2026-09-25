@@ -186,6 +186,12 @@ Available MCP tools:
 | `search_timeline` | Search/filter timeline with multi-criteria |
 | `list_findings` | List investigation findings |
 | `search_ioc` | Search IOC across all artifacts |
+| **Scanning & rules** *(v0.3.7)* | |
+| `scan_yara` | YARA scan of every file (Raijin, pinned rule sets) |
+| `scan_sigma` | Sigma scan of EVTX / Linux logs (KAPE, Velociraptor, mount) |
+| `scan_evidence` | YARA + Sigma in a single pass |
+| `get_ruleset_info` | Pinned rule sources, installation and integrity status |
+| `list_rule_conflicts` | Duplicate / conflicting rules across sources |
 
 ### Docker
 
@@ -321,7 +327,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - MCP: `scan_yara`, `scan_sigma` — CLI: `defair scan yara`, `defair scan sigma`
 - 212 tests, 16 tool wrappers
 
-### ✅ v0.3.6 — Hardening + reproducible images (current)
+### ✅ v0.3.6 — Hardening + reproducible images
 
 *Prerequisite: before adding more engines, make the platform match its own principles.*
 
@@ -333,50 +339,53 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - **Pinned supply chain**: EZ Tools and Hayabusa pinned by version + SHA-256; tool versions stored in every `ToolRun` *(rule sets: see v0.3.7)*
 - **Analyst shell (CLI only)**: `defair container shell <case>` — interactive session in the case container, evidence `:ro`, never exposed via MCP *(≈ `hecatrace shell`)*
 
-### 📋 v0.3.7 — Raijin scan engine (vendored) + verified rule sets
+### ✅ v0.3.7 — Raijin scan engine (vendored) + verified rule sets (current)
 
-*[Raijin](external_tool/raijin-main/) (Rust, YARA-X + sigma-rust) is integrated **in-tree** and becomes the single engine behind `scan_yara` and `scan_sigma`.*
+*Raijin (Rust, YARA-X + sigma-rust) is integrated **in-tree** (`engines/raijin/`) and is the single engine behind `scan_yara`, `scan_sigma` and `scan_evidence`.*
 
 **Engine**
 
-- Raijin source **vendored in the repository** (`engines/raijin/`) as a DEFAIR-maintained fork, built in a Rust `builder` stage (CI → GHCR) — licensing arrangement with the author recorded in `engines/raijin/LICENSING.md`
-- Run as a cold scanner only: `--lab --no-procs --no-tui --no-html --signatures /opt/defair/rules --jsonl …` — never live processes
-- Replaces **yara-python** + the **Yara-Rules/rules** bundle for YARA, and **Hayabusa** for mass Sigma scanning
-- Native layout detection (KAPE, Velociraptor, plain mount), original Windows path reconstructed, findings per matched event, ZIP content scanning
-- Raijin JSONL → normalizer → artifacts + findings (score → severity, MITRE tags from Sigma)
+- Raijin source **vendored** in `engines/raijin/` as a DEFAIR-maintained fork (changes listed in `engines/raijin/LICENSING.md`), built from source with a pinned Rust toolchain in the image's `raijin-build` stage
+- Cold scan of the target folder only: `--lab --no-procs --scan-all-files` — never live processes, never other host drives
+- Replaces **yara-python** + the unpinned **Yara-Rules/rules** bundle for YARA, and **Hayabusa** for mass Sigma scanning
+- Native layout detection (KAPE, Velociraptor, plain mount), original Windows path and event time kept, one detection per matched event
+- Raijin JSONL now carries a structured rule reference (`engine`, `name`, `id`, `namespace`, `file`, `tags`, `level`) → normalizer → artifacts + findings (Sigma level / YARA score → severity, MITRE techniques from Sigma tags)
 
-**Rule sources — broad coverage**
+**Rule sources — 13 pinned sources, ~35,000 loadable rules**
 
-| Engine | Sources |
-|--------|---------|
-| YARA | YARA Forge (core / extended / full), Elastic protections-artifacts, ESET malware-ioc, ReversingLabs, Malpedia signator-rules, Neo23x0 signature-base, Trellix ATR |
-| Sigma | SigmaHQ (core / core+ / core++ / all + emerging-threats add-on), mdecrevoisier SIGMA-detection-rules, LOLRMM |
-
-- Selectable rule profiles per scan: `precise` (YARA Forge core + SigmaHQ core) or `broad` (every source)
+| Engine | Sources | Profile |
+|--------|---------|---------|
+| YARA | YARA Forge core | `precise` |
+| YARA | YARA Forge full, Elastic protections-artifacts, ESET malware-ioc, ReversingLabs, Malpedia signator-rules, Neo23x0 signature-base, Trellix ATR | `broad` |
+| Sigma | SigmaHQ core + emerging-threats add-on | `precise` |
+| Sigma | SigmaHQ all rules, mdecrevoisier SIGMA-detection-rules, LOLRMM | `broad` |
 
 **Integrity — every source pinned and verified**
 
-- **`rules.lock`**, one entry per source: repo, release tag *or* **commit SHA** (never a branch), archive SHA-256, and a **per-file SHA-256 manifest** of the extracted rules (stable even if GitHub re-compresses the archive), plus the source license
-- Release assets verified against the GitHub release digest; branch-only sources fetched by pinned commit
-- Verified at build time **and** re-verified at scan time — missing, extra or modified rule file → scan refused
-- `raijin-util update` patched to be **lock-driven** (no hardcoded `latest` URLs); bumping the lock is a reviewed commit, CI diffs rule counts per source
-- Offline updates: `defair rules status` / `defair rules update --bundle <tar>` (bundle checked against the lock)
+- Sources declared in `src/defair/rules/sources.yaml`, pinned in **`src/defair/rules/lock/rules.lock`**: release tag *or* **commit SHA** (never a branch), archive SHA-256, license, and a **per-file SHA-256 manifest** (`lock/manifests/<source>.json`) — shipped inside the Python package
+- `defair rules lock --refresh` re-pins (release archives checked against GitHub's published digest); bumping the lock is a reviewed commit
+- `defair rules sync` (image build) installs each source into `/opt/defair/rules/<engine>/<source>/` and verifies every file — any missing, extra or modified file aborts the build
+- **Re-verified before every scan**: a store that differs from the lock → scan refused
+- `raijin-util validate` runs per source at build (`VALIDATION.txt`); the build fails if a source has no loadable rule
+- `raijin-util update` / `upgrade` disabled — no unpinned `latest` downloads
 
 **Collision handling — no rule silently overwritten**
 
-- **No basename flattening**: rules stored as `rules/<engine>/<source>/<original path>`, so two files with the same name in different folders or sources both survive
-- **YARA**: one namespace per source (identical rule names across sources no longer break compilation); cross-source duplicates resolved first-source-wins in a fixed, documented source order, at rule granularity
-- **Sigma**: deduplicated by rule `id` (UUID); same `id` with *different* content is reported as a conflict, not dropped silently
-- **`rules/CONFLICTS.json`** generated at build: every dropped duplicate and every conflict, with source, path and SHA-256
-- `raijin-util validate` in CI: unloadable rules listed per source; build fails if a source loses loadable rules versus the previous lock
+- **No basename flattening**: each source keeps its upstream tree, so same-named files in different folders or sources all survive
+- Per-run signature tree assembled as `NN_<source>` symlinks in lock order: first source wins on a duplicate Sigma `id`, each YARA source loads in its own namespace
+- **`CONFLICTS.json`** per profile: identical Sigma duplicates, conflicting Sigma rules (same `id`, different content — first source wins) and YARA rule names shipped by several sources (`defair rules conflicts`, MCP `list_rule_conflicts`)
+- YARA hits of the same rule from several sources are merged into one artifact listing every source
 
 **Provenance in results**
 
-- Findings carry: source, release tag / commit, rule id / name, rule file path + SHA-256, rule license
-- **Custom rules** (`/rules/yara/`, `/rules/sigma/`) hashed and tagged `provenance: custom`, in their own namespace
-- `NOTICE` lists every embedded rule set with its license (DRL 1.1, Elastic License 2.0, MIT, BSD…)
-- MCP: `scan_yara`, `scan_sigma` (same names, new engine), `scan_evidence` (YARA + Sigma in one pass), `get_ruleset_info`, `list_rule_conflicts`
-- Hayabusa kept only for `hunt_evtx` timeline enrichment, its rule set (`Yamato-Security/hayabusa-rules`) recorded as its own pinned source
+- Every finding's `detection_refs`: engine, source, repo, pinned ref, rule id / name, rule file path + SHA-256, license
+- **Custom rules** (`/rules/yara/`, `/rules/sigma/` or `--yara-rules-dir` / `--sigma-rules-dir`) linked as `99_custom`, hashed into the ToolRun, tagged `provenance: custom`
+- `/opt/defair/rules/NOTICE` lists every embedded rule set with its license (DRL 1.1, Elastic License 2.0, CC BY-SA 4.0, MIT, BSD…)
+- CLI: `defair scan yara|sigma|evidence --profile precise|broad`, `defair rules status|verify|conflicts|lock|sync`
+- MCP: `scan_yara`, `scan_sigma`, `scan_evidence`, `get_ruleset_info`, `list_rule_conflicts`
+- Fixed: scan findings were never created (the service read `artifact_count` instead of `artifacts_produced`)
+- Hayabusa kept for `hunt_evtx` timeline enrichment, pinned by version + SHA-256
+- *Deferred:* offline rule updates from a verified bundle (`defair rules update --bundle`) — rules are updated by re-pinning the lock and rebuilding the image
 
 ### 📋 v0.3.8 — Preprocessing & normalization pipeline
 
@@ -487,8 +496,8 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 | **Dissect** | Host discovery, artifact identification, image & filesystem access | `defair` | v0.2 | ✅ |
 | **EZ Tools** (13) | Windows artifacts (MFT, EVTX, Registry, Amcache, LNK, SRUM, ...) | `defair` | v0.2 | ✅ |
 | **Hayabusa** | EVTX hunting timeline (hayabusa-rules, distinct provenance) | `defair` | v0.3 | ✅ |
-| **YARA** (yara-python) | File/memory pattern matching — replaced by Raijin | `defair` | v0.3.5 | ✅ |
-| **Raijin** (vendored) | YARA-X + Sigma cold scanner, 10+ pinned rule sources | `defair` | v0.3.7 | 📋 |
+| **YARA** (yara-python) | File pattern matching — replaced by Raijin in v0.3.7 | — | v0.3.5 | ⛔ |
+| **Raijin** (vendored) | YARA-X + Sigma cold scanner, 13 pinned rule sources | `defair` | v0.3.7 | ✅ |
 | **EZ Tools** (remaining) | RecentFileCacheParser, SumECmd, bstrings, rla | `defair` | v0.4.5 | 📋 |
 | **INDXRipper / USN parsing** | `$I30` slack, USN Journal | `defair` | v0.4.5 | 📋 |
 | **Plaso** | Supertimeline, multi-source timestamp normalization | `worker-plaso` | v0.5 | 📋 |

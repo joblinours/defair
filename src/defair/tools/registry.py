@@ -103,13 +103,13 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.lecmd import LECmdTool
     from defair.tools.mftecmd import MFTECmdTool
     from defair.tools.prefetch import PrefetchTool
+    from defair.tools.raijin import RaijinTool
     from defair.tools.rbcmd import RBCmdTool
     from defair.tools.recmd import RECmdTool
     from defair.tools.sbecmd import SBECmdTool
     from defair.tools.sqlecmd import SQLECmdTool
     from defair.tools.srumecmd import SrumECmdTool
     from defair.tools.wxtcmd import WxTCmdTool
-    from defair.tools.yara_scanner import YaraTool
 
     registry = ToolRegistry()
     for tool_cls in [
@@ -128,7 +128,7 @@ def get_default_registry() -> ToolRegistry:
         WxTCmdTool,
         SQLECmdTool,
         SrumECmdTool,
-        YaraTool,
+        RaijinTool,
     ]:
         registry.register(tool_cls())
 

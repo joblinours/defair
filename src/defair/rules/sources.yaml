@@ -1,0 +1,128 @@
+# DEFAIR rule sources — edited by humans, resolved into lock/rules.lock by
+# `defair rules lock --refresh`. Order matters: it is the precedence order
+# used when two sources ship the same rule (first source wins).
+#
+# kind: release → a GitHub release asset (verified against GitHub's digest)
+# kind: branch  → the branch is resolved to a commit SHA at lock time; the
+#                 archive of that exact commit is fetched and every extracted
+#                 file is verified against the per-file manifest.
+
+sources:
+  # ── YARA ────────────────────────────────────────────────────────────────
+  - id: yaraforge_core
+    engine: yara
+    repo: YARAHQ/yara-forge
+    kind: release
+    asset: yara-forge-rules-core.zip
+    extensions: [".yar"]
+    profiles: [precise]
+
+  - id: yaraforge_full
+    engine: yara
+    repo: YARAHQ/yara-forge
+    kind: release
+    asset: yara-forge-rules-full.zip
+    extensions: [".yar"]
+    profiles: [broad]
+
+  - id: elastic
+    license: Elastic-2.0  # repository license not machine-readable on GitHub
+    engine: yara
+    repo: elastic/protections-artifacts
+    kind: branch
+    branch: main
+    path_filter: yara/rules/
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  - id: eset
+    engine: yara
+    repo: eset/malware-ioc
+    kind: branch
+    branch: master
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  - id: reversinglabs
+    engine: yara
+    repo: reversinglabs/reversinglabs-yara-rules
+    kind: branch
+    branch: develop
+    path_filter: yara/
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  - id: malpedia
+    license: CC-BY-SA-4.0  # repository license not machine-readable on GitHub
+    engine: yara
+    repo: malpedia/signator-rules
+    kind: branch
+    branch: main
+    path_filter: rules/
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  - id: neo23x0
+    license: DRL-1.1  # repository license not machine-readable on GitHub
+    engine: yara
+    repo: Neo23x0/signature-base
+    kind: branch
+    branch: master
+    path_filter: yara/
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  - id: atr
+    engine: yara
+    repo: advanced-threat-research/Yara-Rules
+    kind: branch
+    branch: master
+    extensions: [".yar", ".yara"]
+    profiles: [broad]
+
+  # ── Sigma ───────────────────────────────────────────────────────────────
+  - id: sigmahq_core
+    license: DRL-1.1  # repository license not machine-readable on GitHub
+    engine: sigma
+    repo: SigmaHQ/sigma
+    kind: release
+    asset: sigma_core.zip
+    extensions: [".yml", ".yaml"]
+    profiles: [precise]
+
+  - id: sigmahq_all
+    license: DRL-1.1  # repository license not machine-readable on GitHub
+    engine: sigma
+    repo: SigmaHQ/sigma
+    kind: release
+    asset: sigma_all_rules.zip
+    extensions: [".yml", ".yaml"]
+    profiles: [broad]
+
+  - id: sigmahq_emerging
+    license: DRL-1.1  # repository license not machine-readable on GitHub
+    engine: sigma
+    repo: SigmaHQ/sigma
+    kind: release
+    asset: sigma_emerging_threats_addon.zip
+    extensions: [".yml", ".yaml"]
+    # Already part of sigma_all_rules (broad); adds recent threats to precise.
+    profiles: [precise]
+
+  - id: mdecrevoisier
+    engine: sigma
+    repo: mdecrevoisier/SIGMA-detection-rules
+    kind: branch
+    branch: main
+    extensions: [".yml", ".yaml"]
+    exclude: [".github/"]
+    profiles: [broad]
+
+  - id: lolrmm
+    engine: sigma
+    repo: magicsword-io/LOLRMM
+    kind: branch
+    branch: main
+    path_filter: detections/sigma/
+    extensions: [".yml", ".yaml"]
+    profiles: [broad]

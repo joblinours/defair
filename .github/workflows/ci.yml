@@ -39,9 +39,28 @@ jobs:
         run: |
           pytest tests/ -v --tb=short
 
+  raijin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engines/raijin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (pinned in engines/raijin/rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.91.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engines/raijin
+
+      - name: Test Raijin
+        run: cargo test --release --locked
+
   docker:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, raijin]
     if: github.event_name == 'push'
     permissions:
       contents: read

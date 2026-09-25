@@ -1,0 +1,241 @@
+# Raijin Usage Guide
+
+Raijin is a high-performance, multi-threaded YARA & IOC scanner written in Rust.
+
+## Quick Start
+
+1. **Build the project:**
+   ```bash
+   make build
+   ```
+
+2. **Create a complete package:**
+   ```bash
+   make package
+   ```
+   This creates a `build/` directory with:
+   - The binary (`raijin`)
+   - Signatures directory (`signatures/`)
+   - Configuration files (`config/`)
+   - This usage guide
+
+3. **Run Raijin:**
+   ```bash
+   ./build/raijin --help
+   ```
+
+## Command Line Options
+
+```
+Usage: raijin [OPTIONS]
+
+Raijin - High-Performance, Multi-threaded YARA & IOC Scanner
+
+Options:
+  -m, --max-file-size         Maximum file size to scan (default: 10000000)
+      --yara-timeout <SECONDS> Maximum YARA scan time per file/process in seconds (default: 10)
+  -s, --show-access-errors    Show all file and process access errors
+  -c, --scan-all-files        Scan all files regardless of their file type / extension
+  -d, --debug                 Show debugging information
+  -t, --trace                 Show very verbose trace output
+  -n, --noprocs               Don't scan processes
+  -o, --nofs                  Don't scan the file system
+  -f, --folder                Folder to scan
+  -h, --help                  Show this help message.
+```
+
+## Basic Usage Examples
+
+### Scan the entire file system:
+```bash
+./build/raijin
+```
+
+### Scan a specific directory:
+```bash
+./build/raijin -f /path/to/scan
+```
+
+### Scan a Windows directory with spaces:
+```powershell
+.\raijin.exe -f "J:\SteamLibrary\steamapps\common\SpaceCraft beta"
+```
+
+### Scan with debug output:
+```bash
+./build/raijin -d -f /path/to/scan
+```
+
+### Scan only files (skip process scanning):
+```bash
+./build/raijin -n -f /path/to/scan
+```
+
+### Scan only processes (skip file system):
+```bash
+./build/raijin -o
+```
+
+### Scan all file types (not just executables):
+```bash
+./build/raijin -c -f /path/to/scan
+```
+
+## Signatures
+
+Raijin uses YARA rules and IOC files for detection. Signatures are located in the `signatures/` directory:
+
+- **YARA rules**: Place `.yar` files in `signatures/yara/`
+- **Hash IOCs**: Place hash IOC files in `signatures/iocs/` (files containing "hash" in the name)
+- **Filename IOCs**: Place filename IOC files in `signatures/iocs/` (files containing "filename" in the name)
+- **C2 IOCs**: Place C2 IOC files in `signatures/iocs/` (files containing "c2" in the name)
+
+### Setting up Signatures
+
+The easiest way to set up signatures is using the included `raijin-util` tool:
+
+```bash
+./raijin-util update
+```
+
+This downloads:
+- **YARA rules** from [YARA Forge](https://yaraforge.com/) (Core rule set)
+- **Sigma rules** from [SigmaHQ](https://github.com/SigmaHQ/sigma) (Core rule set), used by the Sigma cold-scan module (EVTX / Linux log artifacts)
+
+Alternatively, you can manually download:
+
+1. **YARA rules** - Download from [YARA Forge releases](https://github.com/YARAHQ/yara-forge/releases):
+   ```bash
+   wget https://github.com/YARAHQ/yara-forge/releases/latest/download/yara-forge-rules-core.zip
+   unzip yara-forge-rules-core.zip -d ./signatures/yara/
+   ```
+
+2. **Sigma rules** - Download from [SigmaHQ releases](https://github.com/SigmaHQ/sigma/releases):
+   ```bash
+   wget https://github.com/SigmaHQ/sigma/releases/latest/download/sigma_core.zip
+   unzip sigma_core.zip -d ./tmp/sigma-core
+   find ./tmp/sigma-core -name "*.yml" -exec cp {} ./signatures/sigma/ \;
+   ```
+
+3. **Optional custom IOCs** - Add your own IOC files to `./signatures/iocs/`:
+   - `hash-*.txt` for hash indicators
+   - `filename-*.txt` for filename pattern indicators
+   - `c2-*.txt` for C2 indicators
+
+## Configuration
+
+### Exclusions
+
+You can configure file path exclusions using regex patterns in `config/excludes.cfg`. Each line represents a regular expression that gets applied to the full file path during the directory walk.
+
+Example `config/excludes.cfg`:
+```
+# Excluded directories
+^/proc/.*
+^/dev/.*
+^/sys/.*
+# Exclude specific file patterns
+.*\.log$
+.*/tmp/.*
+```
+
+## Generating HTML Reports from JSONL Files
+
+The `raijin-util` tool can generate HTML reports from existing JSONL log files, either individually or by combining multiple scans:
+
+### Single JSONL File
+
+Generate an HTML report from a single JSONL file:
+
+```bash
+./raijin-util html --input raijin_hostname_2026-01-12.jsonl --output report.html
+```
+
+If you omit `--output`, the report will be created with the same name as the input file but with a `.html` extension.
+
+### Combined Reports from Multiple Files
+
+Combine multiple JSONL files into a single HTML report, useful for aggregating results from multiple hosts or scan sessions:
+
+```bash
+# Using glob patterns
+./raijin-util html --input "*.jsonl" --combine --output combined_report.html
+
+# Specify multiple files explicitly (if glob doesn't work)
+./raijin-util html --input scan1.jsonl --input scan2.jsonl --combine --output combined.html
+```
+
+The combined report includes:
+- A summary table showing findings per host
+- Per-host grouping of findings
+- Total counts by severity across all hosts
+
+### Options
+
+- `--input <file|glob>` - Input JSONL file or glob pattern (required)
+- `--output <file.html>` - Output HTML file (optional)
+- `--combine` - Enable combined report mode for multiple inputs
+- `--title <str>` - Override the report title
+- `--host <str>` - Override the hostname displayed in the report
+
+### Example Use Cases
+
+1. **Regenerate a report after a scan:**
+   ```bash
+   ./raijin-util html --input raijin_myhost_2026-01-12.jsonl
+   ```
+
+2. **Combine scans from multiple hosts:**
+   ```bash
+   ./raijin-util html --input "raijin_*.jsonl" --combine --output all_hosts_report.html
+   ```
+
+3. **Create a custom-titled report:**
+   ```bash
+   ./raijin-util html --input scan.jsonl --title "Security Audit - Q1 2026" --output audit.html
+   ```
+
+## Output Levels
+
+Raijin uses a scoring system to determine the severity of matches:
+
+- **ALERT**: High severity matches (default threshold: 75)
+- **WARNING**: Medium severity matches (default threshold: 50)
+- **NOTICE**: Low severity matches (default threshold: 25)
+
+Matches are scored based on YARA rule metadata and IOC scores, with weighted scoring for multiple matches.
+
+## Logging
+
+Raijin supports multiple log levels:
+
+- **Default**: Shows ALERT, WARNING, and NOTICE messages
+- **Debug** (`-d`): Shows additional debugging information
+- **Trace** (`-t`): Shows very verbose trace output including all scanned files
+
+## Troubleshooting
+
+### "Cannot read YARA rules directory"
+- Ensure the `signatures/yara/` directory exists
+- Check that you have read permissions
+- Verify that at least one `.yar` file is present
+
+### "Cannot access file" errors
+- Use `-s` flag to show all access errors
+- Check file permissions
+- Some system files may require elevated privileges
+
+### Process scanning fails
+- Process memory scanning requires appropriate permissions
+- Some processes may be protected
+- On Linux, device-backed and kernel-special mappings are skipped intentionally to avoid unstable driver VMAs
+- On macOS, most processes deny memory access unless debugging entitlements or elevated privileges are present
+- Use `-n` to skip process scanning if needed
+
+## Building from Source
+
+See `README.md` for detailed build instructions and requirements.
+
+## License
+
+See `LICENSE` file for license information.

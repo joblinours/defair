@@ -1,6 +1,8 @@
-"""CLI commands for mass scanning (YARA + Sigma)."""
+"""CLI commands for mass scanning (YARA + Sigma) with Raijin."""
 
 from __future__ import annotations
+
+import functools
 
 import click
 from rich.console import Console
@@ -10,142 +12,106 @@ from defair.database import get_initialized_connection, run_sync
 
 console = Console()
 
+SEVERITIES = ["informational", "low", "medium", "high", "critical"]
+
 
 @click.group("scan")
 def scan_group():
-    """Mass scan evidence with YARA and Sigma rules."""
+    """Mass scan evidence with YARA and Sigma rules (Raijin).
+
+    Rules come from the pinned, verified rule store (see `defair rules status`).
+    Profiles: `precise` (YARA Forge core + SigmaHQ core) or `broad` (every source).
+    Custom rules: mount /rules/yara/ and /rules/sigma/ (tagged provenance: custom).
+    """
+
+
+def _scan_options(fn):
+    @click.argument("input_path")
+    @click.option("--case", "case_id", required=True, help="Case ID or case number.")
+    @click.option("--evidence", "evidence_id", default=None, help="Evidence ID.")
+    @click.option("--profile", default="broad", type=click.Choice(["precise", "broad"]),
+                  show_default=True, help="Rule profile.")
+    @click.option("--min-severity", default="medium", type=click.Choice(SEVERITIES),
+                  show_default=True, help="Lowest severity that becomes a finding.")
+    @click.option("--yara-rules-dir", default=None, help="Custom YARA rules directory.")
+    @click.option("--sigma-rules-dir", default=None, help="Custom Sigma rules directory.")
+    @click.option("--executables-only", is_flag=True,
+                  help="YARA-scan only executables/scripts instead of every file.")
+    @click.pass_context
+    @functools.wraps(fn)
+    def wrapper(ctx, **kwargs):
+        return fn(ctx, **kwargs)
+    return wrapper
+
+
+def _run_scan(ctx: click.Context, mode: str, label: str, **opts) -> None:
+    container = get_container_or_fail(ctx)
+    if container:
+        cmd = ["scan", ctx.info_name, opts["input_path"], "--case", opts["case_id"],
+               "--profile", opts["profile"], "--min-severity", opts["min_severity"]]
+        if opts["evidence_id"]:
+            cmd.extend(["--evidence", opts["evidence_id"]])
+        for key in ("yara_rules_dir", "sigma_rules_dir"):
+            if opts.get(key):
+                cmd.extend([f"--{key.replace('_', '-')}", opts[key]])
+        if opts["executables_only"]:
+            cmd.append("--executables-only")
+        return proxy_command(container, cmd)
+
+    from defair.services import scanning_service
+
+    async def _run() -> None:
+        conn = await get_initialized_connection(ctx.obj["db_path"])
+        try:
+            result = await scanning_service.scan(
+                conn,
+                input_path=opts["input_path"],
+                case_id=opts["case_id"],
+                mode=mode,
+                profile=opts["profile"],
+                evidence_id=opts["evidence_id"],
+                yara_rules_dir=opts.get("yara_rules_dir"),
+                sigma_rules_dir=opts.get("sigma_rules_dir"),
+                min_severity=opts["min_severity"],
+                all_files=not opts["executables_only"],
+            )
+        except Exception as e:  # noqa: BLE001 — surface rule integrity errors cleanly
+            console.print(f"[red]✗ {label} scan refused:[/red] {e}")
+            raise SystemExit(1)
+        finally:
+            await conn.close()
+
+        if result.get("status") == "completed":
+            console.print(f"[green]✓[/green] {label} scan completed: [cyan]{result['run_number']}[/cyan]")
+            console.print(f"  Profile:          {result['profile']}")
+            console.print(f"  Matches:          {result.get('artifacts_produced', 0)}")
+            console.print(f"  Findings created: {result.get('findings_created', 0)}")
+        else:
+            console.print(f"[red]✗[/red] {label} scan {result.get('status')}: {result.get('run_number')}")
+            raise SystemExit(1)
+
+    run_sync(_run())
 
 
 @scan_group.command("yara")
-@click.argument("input_path")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
-@click.option("--evidence", "evidence_id", default=None, help="Evidence ID.")
-@click.option("--rules-dir", default=None, help="Additional YARA rules directory.")
-@click.option("--timeout", "file_timeout", default=60, type=int, help="Per-file timeout (seconds).")
-@click.option("--max-size", default=100, type=int, help="Max file size in MB to scan.")
-@click.pass_context
-def scan_yara_cmd(
-    ctx: click.Context,
-    input_path: str,
-    case_id: str,
-    evidence_id: str | None,
-    rules_dir: str | None,
-    file_timeout: int,
-    max_size: int,
-) -> None:
-    """Scan files with YARA rules.
-
-    Scans INPUT_PATH (file or directory) against built-in and custom YARA rules.
-    Creates findings for each matching rule.
-
-    Built-in rules: /opt/yara/rules/
-    Custom rules:   /rules/yara/ (mount your own)
-    """
-    container = get_container_or_fail(ctx)
-    if container:
-        cmd = ["scan", "yara", input_path, "--case", case_id,
-               "--timeout", str(file_timeout), "--max-size", str(max_size)]
-        if evidence_id:
-            cmd.extend(["--evidence", evidence_id])
-        if rules_dir:
-            cmd.extend(["--rules-dir", rules_dir])
-        return proxy_command(container, cmd)
-
-    from defair.services import scanning_service
-
-    async def _run() -> None:
-        db_path = ctx.obj["db_path"]
-        conn = await get_initialized_connection(db_path)
-        try:
-            result = await scanning_service.scan_yara(
-                conn,
-                input_path=input_path,
-                case_id=case_id,
-                evidence_id=evidence_id,
-                rules_dir=rules_dir,
-                file_timeout=file_timeout,
-                max_file_size=max_size * 1024 * 1024,
-            )
-
-            status = result.get("status", "unknown")
-            artifacts = result.get("artifact_count", 0)
-            findings = result.get("findings_created", 0)
-
-            if status == "completed":
-                console.print("✓ YARA scan completed", style="green")
-                console.print(f"  Matches: {artifacts}")
-                console.print(f"  Findings created: {findings}")
-            else:
-                console.print(f"✗ YARA scan {status}", style="red")
-                raise SystemExit(1)
-        finally:
-            await conn.close()
-
-    run_sync(_run())
+@_scan_options
+def scan_yara_cmd(ctx: click.Context, **opts) -> None:
+    """Scan every file under INPUT_PATH with YARA rules."""
+    _run_scan(ctx, "yara", "YARA", **opts)
 
 
 @scan_group.command("sigma")
-@click.argument("input_path")
-@click.option("--case", "case_id", required=True, help="Case ID or case number.")
-@click.option("--evidence", "evidence_id", default=None, help="Evidence ID.")
-@click.option("--rules-dir", default=None, help="Custom Sigma rules directory.")
-@click.option("--min-level", default="medium",
-              type=click.Choice(["informational", "low", "medium", "high", "critical"]),
-              help="Minimum detection level.")
-@click.pass_context
-def scan_sigma_cmd(
-    ctx: click.Context,
-    input_path: str,
-    case_id: str,
-    evidence_id: str | None,
-    rules_dir: str | None,
-    min_level: str,
-) -> None:
-    """Scan EVTX files with Sigma rules via Hayabusa.
+@_scan_options
+def scan_sigma_cmd(ctx: click.Context, **opts) -> None:
+    """Scan EVTX / Linux logs under INPUT_PATH with Sigma rules.
 
-    Scans all EVTX files in INPUT_PATH against Sigma detection rules.
-    Creates findings for high/critical detections.
-
-    Built-in rules: /opt/hayabusa/rules/
-    Custom rules:   /rules/sigma/ (mount your own)
+    KAPE, Velociraptor and plain-mount layouts are detected automatically.
     """
-    container = get_container_or_fail(ctx)
-    if container:
-        cmd = ["scan", "sigma", input_path, "--case", case_id,
-               "--min-level", min_level]
-        if evidence_id:
-            cmd.extend(["--evidence", evidence_id])
-        if rules_dir:
-            cmd.extend(["--rules-dir", rules_dir])
-        return proxy_command(container, cmd)
+    _run_scan(ctx, "sigma", "Sigma", **opts)
 
-    from defair.services import scanning_service
 
-    async def _run() -> None:
-        db_path = ctx.obj["db_path"]
-        conn = await get_initialized_connection(db_path)
-        try:
-            result = await scanning_service.scan_sigma(
-                conn,
-                input_path=input_path,
-                case_id=case_id,
-                evidence_id=evidence_id,
-                rules_dir=rules_dir,
-                min_level=min_level,
-            )
-
-            status = result.get("status", "unknown")
-            artifacts = result.get("artifact_count", 0)
-            findings = result.get("findings_created", 0)
-
-            if status == "completed":
-                console.print("✓ Sigma scan completed", style="green")
-                console.print(f"  Detections: {artifacts}")
-                console.print(f"  Findings created: {findings}")
-            else:
-                console.print(f"✗ Sigma scan {status}", style="red")
-                raise SystemExit(1)
-        finally:
-            await conn.close()
-
-    run_sync(_run())
+@scan_group.command("evidence")
+@_scan_options
+def scan_evidence_cmd(ctx: click.Context, **opts) -> None:
+    """Scan INPUT_PATH with YARA and Sigma in a single pass."""
+    _run_scan(ctx, "all", "YARA + Sigma", **opts)

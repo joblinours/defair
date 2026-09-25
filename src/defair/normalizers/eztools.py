@@ -579,10 +579,10 @@ from defair.normalizers.hayabusa import HayabusaNormalizer
 
 NORMALIZER_MAP["hayabusa"] = HayabusaNormalizer
 
-# Register YARA normalizer (detection tool, separate module)
-from defair.normalizers.yara import YaraNormalizer
+# Register Raijin normalizer (YARA + Sigma detections, separate module)
+from defair.normalizers.raijin import RaijinNormalizer
 
-NORMALIZER_MAP["yara"] = YaraNormalizer
+NORMALIZER_MAP["raijin"] = RaijinNormalizer
 
 
 def get_normalizer(tool_name: str) -> BaseNormalizer | None:

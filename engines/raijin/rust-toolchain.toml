@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned for reproducible builds (DEFAIR). yara-x / cranelift need >= 1.91.
+channel = "1.91.0"
+profile = "minimal"
