@@ -25,6 +25,7 @@ class SBECmdTool(BaseTool):
         return ToolManifest(
             name="sbecmd",
             display_name="SBECmd",
+            allowed_options=["directory", "no_logs"],
             vendor="Eric Zimmerman",
             description="ShellBags parser. Extracts folder browsing history, timestamps, and evidence of folder access from NTUSER.DAT/UsrClass.dat.",
             category=ToolCategory.REGISTRY,

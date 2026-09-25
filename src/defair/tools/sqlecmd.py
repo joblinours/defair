@@ -26,6 +26,7 @@ class SQLECmdTool(BaseTool):
         return ToolManifest(
             name="sqlecmd",
             display_name="SQLECmd",
+            allowed_options=["directory", "maps_dir"],
             vendor="Eric Zimmerman",
             description="SQLite forensic parser. Uses map files to extract browser history, downloads, cookies, SRUM data, and other forensic artifacts from SQLite databases.",
             category=ToolCategory.BROWSER,

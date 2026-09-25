@@ -23,8 +23,9 @@ class HayabusaTool(BaseTool):
         return ToolManifest(
             name="hayabusa",
             display_name="Hayabusa",
+            allowed_options=["min_level", "profile", "rules_dir"],
             vendor="Yamato Security",
-            version="2.18.0",
+            version="4.1.0",
             description=(
                 "Sigma-based threat hunting and detection for Windows Event Logs. "
                 "Applies 4000+ detection rules with MITRE ATT&CK mapping."

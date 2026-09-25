@@ -26,6 +26,7 @@ class AmcacheParserTool(BaseTool):
         return ToolManifest(
             name="amcacheparser",
             display_name="AmcacheParser",
+            allowed_options=["include_linked"],
             vendor="Eric Zimmerman",
             description="Amcache.hve parser. Extracts application execution records, SHA-1 hashes, file metadata, and driver information.",
             category=ToolCategory.EXECUTION,

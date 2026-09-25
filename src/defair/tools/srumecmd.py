@@ -30,6 +30,7 @@ class SrumECmdTool(BaseTool):
         return ToolManifest(
             name="srumecmd",
             display_name="SrumECmd",
+            allowed_options=["registry_hive"],
             vendor="Eric Zimmerman",
             description="SRUM parser. Extracts network usage, app timelines, energy usage, and push notification data per application with SID resolution.",
             category=ToolCategory.NETWORK,

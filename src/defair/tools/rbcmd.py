@@ -25,6 +25,7 @@ class RBCmdTool(BaseTool):
         return ToolManifest(
             name="rbcmd",
             display_name="RBCmd",
+            allowed_options=["directory"],
             vendor="Eric Zimmerman",
             description="Recycle Bin parser. Extracts original path, deletion time, file size, and user SID from $I/$R files.",
             category=ToolCategory.FILESYSTEM,

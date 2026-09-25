@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import aiosqlite
 import structlog
@@ -21,6 +21,88 @@ from defair.normalizers.eztools import get_normalizer
 from defair.tools.registry import ToolRegistry, get_default_registry
 
 log = structlog.get_logger(component="analysis_service")
+
+
+# Container paths a caller may point a tool at (evidence is read-only,
+# workspace holds derived outputs, rules holds custom rule sets).
+ALLOWED_INPUT_ROOTS = ("/evidence", "/workspace", "/rules")
+
+
+def _is_under_allowed_root(path: str) -> bool:
+    if ".." in PurePosixPath(path).parts:
+        return False
+    return any(path == root or path.startswith(root + "/") for root in ALLOWED_INPUT_ROOTS)
+
+
+def validate_tool_request(
+    tool_name: str,
+    input_path: str,
+    options: dict | None = None,
+    registry: ToolRegistry | None = None,
+    strict_paths: bool = True,
+) -> dict:
+    """Validate a tool execution request coming from an agent or a user.
+
+    Only registered tools and options declared in the tool manifest (scalar
+    values) are accepted. With ``strict_paths`` (MCP), the input and any
+    path-like option must also sit under the container's evidence/workspace/rules
+    roots; the analyst CLI relaxes that to allow ad-hoc paths.
+
+    Returns:
+        The validated options.
+
+    Raises:
+        ValueError: If the request is not allowed.
+    """
+    registry = registry or get_default_registry()
+    tool = registry.get(tool_name)
+    if tool is None:
+        known = ", ".join(sorted(m.name for m in registry.list_all()))
+        raise ValueError(f"Unknown tool: {tool_name}. Registered tools: {known}")
+
+    if strict_paths and not _is_under_allowed_root(input_path):
+        raise ValueError(
+            f"Input path '{input_path}' must be under one of: {', '.join(ALLOWED_INPUT_ROOTS)}"
+        )
+
+    allowed = set(tool.manifest().allowed_options)
+    validated: dict = {}
+    for key, value in (options or {}).items():
+        if key not in allowed:
+            raise ValueError(
+                f"Option '{key}' is not allowed for {tool_name}. "
+                f"Allowed: {', '.join(sorted(allowed)) or '(none)'}"
+            )
+        if not isinstance(value, str | int | float | bool):
+            raise ValueError(f"Option '{key}' must be a scalar value")  # noqa: TRY004
+        if (
+            strict_paths
+            and isinstance(value, str)
+            and value.startswith("/")
+            and not _is_under_allowed_root(value)
+        ):
+            raise ValueError(
+                f"Option '{key}' path '{value}' must be under one of: "
+                f"{', '.join(ALLOWED_INPUT_ROOTS)}"
+            )
+        validated[key] = value
+    return validated
+
+
+def parse_option_pairs(pairs: list[str] | tuple[str, ...]) -> dict:
+    """Parse CLI ``key=value`` pairs into typed scalar options."""
+    options: dict = {}
+    for pair in pairs:
+        key, sep, raw = pair.partition("=")
+        if not sep or not key:
+            raise ValueError(f"Invalid option '{pair}', expected key=value")
+        value: str | int | bool = raw
+        if raw.lower() in ("true", "false"):
+            value = raw.lower() == "true"
+        elif raw.isdigit():
+            value = int(raw)
+        options[key.strip()] = value
+    return options
 
 
 async def _next_run_number(conn: aiosqlite.Connection) -> str:

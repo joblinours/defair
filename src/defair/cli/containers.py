@@ -24,7 +24,9 @@ def container_group() -> None:
 @click.option("--evidence", "-e", multiple=True, help="Evidence path(s) to mount read-only.")
 @click.option("--workspace", default=None, help="Custom workspace path.")
 @click.option("--start/--no-start", default=True, help="Start container after creation.")
+@click.pass_context
 def container_create(
+    ctx: click.Context,
     case_id: str | None,
     name: str | None,
     image: str,
@@ -46,11 +48,12 @@ def container_create(
                 image=image,
                 evidence_paths=list(evidence) if evidence else None,
                 workspace=workspace,
+                policy=ctx.obj["config"].container,
             )
         except ConnectionError as e:
             console.print(f"[red]✗ Docker error:[/red] {e}")
             raise SystemExit(1)
-        except FileNotFoundError as e:
+        except (FileNotFoundError, PermissionError, ValueError) as e:
             console.print(f"[red]✗[/red] {e}")
             raise SystemExit(1)
 
@@ -193,6 +196,43 @@ def container_exec(name: str, command: tuple[str, ...], workdir: str | None) -> 
             raise SystemExit(result["exit_code"])
 
     run_sync(_run())
+
+
+@container_group.command("shell")
+@click.argument("name")
+@click.option("--shell", "shell_bin", default="bash", help="Shell to run inside the container.")
+def container_shell(name: str, shell_bin: str) -> None:
+    """Open an interactive shell in a running DEFAIR container.
+
+    For analysts only — this is never exposed through MCP.
+    Evidence stays read-only under /evidence.
+    """
+    import os
+
+    async def _resolve() -> container_service.ContainerInfo | None:
+        return await container_service.get_container(name)
+
+    try:
+        info = run_sync(_resolve())
+    except ConnectionError as e:
+        console.print(f"[red]✗ Docker error:[/red] {e}")
+        raise SystemExit(1)
+    if info is None:
+        console.print(f"[red]✗[/red] DEFAIR container not found: {name}")
+        raise SystemExit(1)
+    if info.status != "running":
+        console.print(
+            f"[red]✗[/red] Container '{info.name}' is not running ({info.status}). "
+            f"Start it with: defair container start {info.name}"
+        )
+        raise SystemExit(1)
+
+    os.execvp("docker", shell_command(info.name, shell_bin))
+
+
+def shell_command(container_name: str, shell_bin: str = "bash") -> list[str]:
+    """Build the docker CLI invocation for an interactive container shell."""
+    return ["docker", "exec", "-it", "-w", "/workspace", container_name, shell_bin]
 
 
 @container_group.command("logs")

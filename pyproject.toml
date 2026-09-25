@@ -1,6 +1,6 @@
 [project]
 name = "defair"
-version = "0.3.5"
+version = "0.3.6"
 description = "DEFAIR — Digital Forensics & Incident Response platform. MCP-first, containerized, modular."
 readme = "README.md"
 requires-python = ">=3.13"

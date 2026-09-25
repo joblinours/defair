@@ -29,6 +29,7 @@ class AppCompatCacheParserTool(BaseTool):
         return ToolManifest(
             name="appcompatcacheparser",
             display_name="AppCompatCacheParser",
+            allowed_options=["sort_by_timestamp"],
             vendor="Eric Zimmerman",
             description="Shimcache / AppCompatCache parser. Extracts file paths, modification times, and cache positions from SYSTEM hive.",
             category=ToolCategory.EXECUTION,

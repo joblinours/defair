@@ -23,6 +23,7 @@ class MFTECmdTool(BaseTool):
         return ToolManifest(
             name="mftecmd",
             display_name="MFTECmd",
+            allowed_options=["body_file", "json_output"],
             vendor="Eric Zimmerman",
             description="NTFS $MFT and $J (USN Journal) parser. Extracts file metadata, timestamps, paths, and resident data.",
             category=ToolCategory.FILESYSTEM,

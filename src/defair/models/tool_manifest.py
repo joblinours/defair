@@ -55,6 +55,8 @@ class ToolManifest(BaseModel):
     command: str = ""  # e.g. "/opt/eztools/MFTECmd" or "python -m dissect"
     runtime: str = "native"  # native, dotnet, python
     timeout: int = 3600  # Default timeout in seconds
+    # Keyword options a caller (CLI --option / MCP run_tool) may pass
+    allowed_options: list[str] = Field(default_factory=list)
 
     # Capabilities
     capabilities: list[str] = Field(default_factory=list)

@@ -46,6 +46,7 @@ class YaraTool(BaseTool):
         return ToolManifest(
             name="yara",
             display_name="YARA Scanner",
+            allowed_options=["file_timeout", "max_file_size", "rules_dir"],
             vendor="DEFAIR (yara-python)",
             description=(
                 "YARA rule-based file scanner. Detects malware, suspicious "

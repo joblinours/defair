@@ -24,6 +24,7 @@ class EvtxECmdTool(BaseTool):
         return ToolManifest(
             name="evtxecmd",
             display_name="EvtxECmd",
+            allowed_options=["directory", "json_output", "maps_dir"],
             vendor="Eric Zimmerman",
             description="Windows Event Log parser. Parses .evtx files with event maps for structured output.",
             category=ToolCategory.EVENTLOG,

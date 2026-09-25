@@ -10,4 +10,19 @@ logging:
   level: INFO
   format: console    # "json" or "console"
 
+mcp:
+  allow_exec: false  # arbitrary shell via MCP — keep off, agents use run_tool
+
+container:
+  # Host directories evidence may be mounted from (required for MCP).
+  evidence_roots:
+    - ~/evidence
+  allowed_image_prefixes:
+    - ghcr.io/joblinours/defair
+  network: none
+  mem_limit: 8g
+  cpus: 4
+  pids_limit: 2048
+  read_only_rootfs: true
+
 timezone: UTC

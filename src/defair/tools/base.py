@@ -11,6 +11,7 @@ provides a consistent interface for:
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -23,6 +24,17 @@ from defair.models.tool_manifest import ToolManifest
 from defair.models.tool_run import ToolRun, ToolRunStatus
 
 log = structlog.get_logger(component="tools")
+
+# Written at image build time: {tool: {"version": ..., "sha256": ...}}
+VERSIONS_FILE = Path("/opt/defair/versions.json")
+
+
+def installed_versions(path: Path = VERSIONS_FILE) -> dict:
+    """Pinned tool versions recorded in the image (empty outside a container)."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 class BaseTool(ABC):
@@ -82,8 +94,10 @@ class BaseTool(ABC):
         return shutil.which(binary) is not None
 
     def get_version(self) -> str | None:
-        """Get the tool's version string. Override for custom detection."""
-        return self.manifest().version
+        """Get the tool's version: the pinned image version, else the manifest's."""
+        m = self.manifest()
+        pinned = installed_versions().get(m.name, {})
+        return pinned.get("version") or m.version
 
     async def run(
         self,

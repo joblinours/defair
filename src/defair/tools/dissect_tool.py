@@ -27,6 +27,7 @@ class DissectTool(BaseTool):
         return ToolManifest(
             name="dissect",
             display_name="Dissect",
+            allowed_options=["function", "list_functions", "output_format"],
             vendor="FOX-IT / NCC Group",
             description="Forensic framework for evidence discovery, host identification, artifact extraction, and filesystem access. Python-native, no external runtime needed.",
             category=ToolCategory.DISCOVERY,

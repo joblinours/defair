@@ -44,6 +44,7 @@ class PrefetchTool(BaseTool):
         return ToolManifest(
             name="prefetch",
             display_name="Prefetch Parser",
+            allowed_options=[],
             vendor="DEFAIR (libscca)",
             description=(
                 "Cross-platform Windows Prefetch parser. Extracts execution "

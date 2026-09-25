@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
+import defair
 from defair.cli.main import cli
 
 
@@ -43,7 +44,7 @@ class TestCLIInsideContainer:
     def test_version(self):
         result = self.runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.3.5" in result.output
+        assert defair.__version__ in result.output
 
     def test_case_create(self):
         result = self.runner.invoke(cli, [*self.base_args, "case", "create", "Test Incident"])
@@ -197,3 +198,41 @@ class TestCLIHostProxy:
         result = self.runner.invoke(cli, ["-c", "my-container", "evidence", "list"])
         assert result.exit_code == 0
         mock_exec.assert_called_once()
+
+
+class TestContainerShell:
+    def test_shell_command(self):
+        from defair.cli.containers import shell_command
+
+        assert shell_command("defair-case-2026-001") == [
+            "docker", "exec", "-it", "-w", "/workspace", "defair-case-2026-001", "bash",
+        ]
+
+
+class TestAnalyzeOptions:
+    def test_parse_option_pairs(self):
+        from defair.services.analysis_service import parse_option_pairs
+
+        assert parse_option_pairs(["min_level=high", "no_logs=false", "n=5"]) == {
+            "min_level": "high", "no_logs": False, "n": 5,
+        }
+
+    def test_parse_option_pairs_invalid(self):
+        import pytest
+
+        from defair.services.analysis_service import parse_option_pairs
+
+        with pytest.raises(ValueError):
+            parse_option_pairs(["novalue"])
+
+    def test_cli_rejects_undeclared_option(self, tmp_path):
+        from click.testing import CliRunner
+
+        from defair.cli.main import cli
+
+        result = CliRunner().invoke(cli, [
+            "--db", str(tmp_path / "t.db"), "analyze", "mftecmd", "/evidence/$MFT",
+            "--case", "CASE-2026-001", "-O", "evil=1",
+        ])
+        assert result.exit_code == 2
+        assert "not allowed" in result.output

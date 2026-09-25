@@ -85,7 +85,8 @@ async def create_container(
                  This is just a label — the case will be created inside the container.
         name: Container name (auto-generated from case_id if omitted).
         image: Docker image (default: ghcr.io/joblinours/defair:latest).
-        evidence_paths: Host paths to mount as read-only evidence.
+        evidence_paths: Host paths to mount as read-only evidence. Must be under
+                        one of the configured evidence roots (container.evidence_roots).
         start: Whether to start the container after creation (default: True).
 
     Returns:
@@ -100,6 +101,8 @@ async def create_container(
         name=name,
         image=image,
         evidence_paths=evidence_paths,
+        policy=_config.container,
+        strict_evidence_roots=True,
     )
 
     if start:
@@ -206,7 +209,6 @@ async def remove_container(name_or_id: str, force: bool = False) -> dict:
     return await container_service.remove_container(name_or_id, force=force)
 
 
-@mcp.tool()
 async def exec_in_container(
     name_or_id: str,
     command: str,
@@ -232,6 +234,61 @@ async def exec_in_container(
     return await container_service.exec_in_container(
         name_or_id, command, workdir=workdir
     )
+
+
+# Arbitrary shell execution is opt-in (mcp.allow_exec). By default agents only
+# get run_tool: registered tools, validated arguments, recorded as ToolRuns.
+if _config.mcp.allow_exec:
+    mcp.tool()(exec_in_container)
+
+
+@mcp.tool()
+async def run_tool(
+    container: str,
+    tool: str,
+    input_path: str,
+    case_id: str,
+    evidence_id: str | None = None,
+    options: dict | None = None,
+    directory: bool = False,
+) -> str:
+    """Run a registered forensic tool inside a DEFAIR container.
+
+    The safe alternative to a shell: only tools from the registry (see
+    list_tools) can run, the input must be under /evidence, /workspace or
+    /rules, and options must be declared in the tool manifest (see
+    list_tools / tools info). Every execution is recorded as a ToolRun and
+    its output normalized into artifacts.
+
+    Args:
+        container: Container name.
+        tool: Registered tool name (e.g. "mftecmd", "hayabusa").
+        input_path: File or directory inside the container.
+        case_id: Case number.
+        evidence_id: Optional evidence ID.
+        options: Tool options, e.g. {"min_level": "high"} for hayabusa.
+        directory: Input is a directory.
+
+    Returns:
+        Run summary (run number, status, artifacts produced).
+    """
+    from defair.services.analysis_service import validate_tool_request
+
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="run_tool", correlation_id=cid,
+             container=container, target_tool=tool, input_path=input_path)
+
+    validated = validate_tool_request(tool, input_path, options, strict_paths=True)
+
+    cmd = ["analyze", tool, input_path, "--case", case_id]
+    if evidence_id:
+        cmd.extend(["--evidence", evidence_id])
+    if directory:
+        cmd.append("--directory")
+    for key, value in validated.items():
+        rendered = str(value).lower() if isinstance(value, bool) else str(value)
+        cmd.extend(["--option", f"{key}={rendered}"])
+    return await _proxy_defair(container, cmd)
 
 
 @mcp.tool()

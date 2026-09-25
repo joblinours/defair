@@ -102,7 +102,11 @@ defair evidence verify EVD-001
 
 ### Container orchestration
 
-DEFAIR runs forensic tools in isolated Docker containers — one per investigation:
+DEFAIR runs forensic tools in isolated Docker containers — one per investigation.
+Containers are hardened by default: all capabilities dropped, `no-new-privileges`, no network,
+read-only root filesystem, CPU/memory/PID limits, running as your host user. Evidence can only
+be mounted from the directories listed in `container.evidence_roots` (`defair.yaml`).
+Hardening applies to containers created from v0.3.6 on — recreate older ones.
 
 ```bash
 # Create a forensic container linked to a case
@@ -110,6 +114,9 @@ defair container create --case CASE-2026-001 --evidence /evidence/host01.E01
 
 # List containers
 defair container list
+
+# Interactive analyst shell (CLI only — never exposed through MCP)
+defair container shell defair-case-2026-001
 
 # Execute a command inside the container
 defair container exec defair-case-2026-001 ls -la /evidence
@@ -151,7 +158,8 @@ Available MCP tools:
 | `start_container` | Start a stopped container |
 | `stop_container` | Stop a running container |
 | `remove_container` | Remove a container |
-| `exec_in_container` | Execute a command inside a container |
+| `run_tool` | Run a registered tool with validated options (recorded as a ToolRun) |
+| `exec_in_container` | Arbitrary command — **disabled** unless `mcp.allow_exec: true` |
 | `container_logs` | Get container logs |
 | **Discovery & Analysis** | |
 | `discover_evidence` | Discover forensic artifacts on mounted evidence |
@@ -303,7 +311,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - Replaced **PECmd** (Windows-only) with a cross-platform Prefetch parser based on **libscca**
 - `analyze_prefetch` MCP tool works end-to-end in Linux containers
 
-### ✅ v0.3.5 — Mass YARA + Sigma scanning (current)
+### ✅ v0.3.5 — Mass YARA + Sigma scanning
 
 - **YARA** mass scanner on mounted evidence (files, memory dumps, disk images)
 - **Sigma** mass scanner via Hayabusa on all EVTX sources
@@ -313,7 +321,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - MCP: `scan_yara`, `scan_sigma` — CLI: `defair scan yara`, `defair scan sigma`
 - 212 tests, 16 tool wrappers
 
-### 📋 v0.3.6 — Hardening + reproducible images
+### ✅ v0.3.6 — Hardening + reproducible images (current)
 
 *Prerequisite: before adding more engines, make the platform match its own principles.*
 

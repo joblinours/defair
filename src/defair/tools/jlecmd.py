@@ -27,6 +27,7 @@ class JLECmdTool(BaseTool):
         return ToolManifest(
             name="jlecmd",
             display_name="JLECmd",
+            allowed_options=["all_files", "directory", "json_output"],
             vendor="Eric Zimmerman",
             description="Windows Jump List parser. Extracts recently/frequently accessed files per application from AutomaticDestinations and CustomDestinations.",
             category=ToolCategory.FILESYSTEM,

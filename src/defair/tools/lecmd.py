@@ -28,6 +28,7 @@ class LECmdTool(BaseTool):
         return ToolManifest(
             name="lecmd",
             display_name="LECmd",
+            allowed_options=["directory", "json_output"],
             vendor="Eric Zimmerman",
             description="Windows LNK shortcut parser. Extracts target paths, timestamps, volume info, MAC address, and network share data.",
             category=ToolCategory.FILESYSTEM,

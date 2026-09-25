@@ -28,6 +28,7 @@ class WxTCmdTool(BaseTool):
         return ToolManifest(
             name="wxtcmd",
             display_name="WxTCmd",
+            allowed_options=[],
             vendor="Eric Zimmerman",
             description="Windows 10/11 Timeline parser. Extracts activity history, app usage, focus times, and file access from ActivitiesCache.db.",
             category=ToolCategory.TIMELINE,

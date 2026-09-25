@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StorageConfig(BaseModel):
@@ -24,11 +24,38 @@ class LoggingConfig(BaseModel):
     format: str = "console"  # "json" or "console"
 
 
+class McpConfig(BaseModel):
+    """MCP server policy."""
+
+    # Arbitrary shell execution in containers via MCP. Off by default:
+    # agents use run_tool (registered tools, validated arguments) instead.
+    allow_exec: bool = False
+
+
+class ContainerConfig(BaseModel):
+    """Forensic container policy and hardening."""
+
+    # Host directories evidence may be mounted from. Empty = unrestricted
+    # for the CLI (with a warning); the MCP refuses to mount anything.
+    evidence_roots: list[Path] = Field(default_factory=list)
+    allowed_image_prefixes: list[str] = Field(
+        default_factory=lambda: ["ghcr.io/joblinours/defair"]
+    )
+    network: str = "none"
+    mem_limit: str = "8g"
+    cpus: float = 4
+    pids_limit: int = 2048
+    read_only_rootfs: bool = True
+    tmpfs_size: str = "2g"
+
+
 class DefairConfig(BaseModel):
     """Root configuration for DEFAIR."""
 
     storage: StorageConfig = StorageConfig()
     logging: LoggingConfig = LoggingConfig()
+    mcp: McpConfig = McpConfig()
+    container: ContainerConfig = ContainerConfig()
     timezone: str = "UTC"
 
     def resolve_paths(self) -> DefairConfig:
@@ -36,6 +63,9 @@ class DefairConfig(BaseModel):
         self.storage.database = self.storage.database.expanduser()
         self.storage.evidence = self.storage.evidence.expanduser()
         self.storage.cases = self.storage.cases.expanduser()
+        self.container.evidence_roots = [
+            p.expanduser() for p in self.container.evidence_roots
+        ]
         # Ensure DB directory exists
         self.storage.database.parent.mkdir(parents=True, exist_ok=True)
         return self

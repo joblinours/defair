@@ -399,3 +399,109 @@ class TestDockerConnection:
         with patch("docker.from_env", side_effect=docker.errors.DockerException("connection refused")), \
              pytest.raises(ConnectionError, match="Cannot connect"):
             container_service._get_client()
+
+
+# ---------------------------------------------------------------------------
+# Tests — security policy (v0.3.6)
+# ---------------------------------------------------------------------------
+
+
+class TestContainerPolicy:
+    def test_image_prefix_allowed(self):
+        from defair.config import ContainerConfig
+
+        container_service.validate_image("ghcr.io/joblinours/defair:0.3.6", ContainerConfig())
+
+    def test_image_prefix_refused(self):
+        from defair.config import ContainerConfig
+
+        with pytest.raises(ValueError, match="not allowed"):
+            container_service.validate_image("docker.io/evil/image:latest", ContainerConfig())
+
+    def test_evidence_inside_root(self, tmp_path):
+        from defair.config import ContainerConfig
+
+        root = tmp_path / "evidence"
+        (root / "case1").mkdir(parents=True)
+        policy = ContainerConfig(evidence_roots=[root])
+        resolved = container_service.validate_evidence_paths([str(root / "case1")], policy)
+        assert resolved == [(root / "case1").resolve()]
+
+    def test_evidence_outside_root_refused(self, tmp_path):
+        from defair.config import ContainerConfig
+
+        root = tmp_path / "evidence"
+        root.mkdir()
+        outside = tmp_path / "home"
+        outside.mkdir()
+        policy = ContainerConfig(evidence_roots=[root])
+        with pytest.raises(PermissionError, match="outside the allowed evidence roots"):
+            container_service.validate_evidence_paths([str(outside)], policy)
+
+    def test_symlink_escaping_root_refused(self, tmp_path):
+        from defair.config import ContainerConfig
+
+        root = tmp_path / "evidence"
+        root.mkdir()
+        secret = tmp_path / "secret"
+        secret.mkdir()
+        (root / "link").symlink_to(secret)
+        policy = ContainerConfig(evidence_roots=[root])
+        with pytest.raises(PermissionError):
+            container_service.validate_evidence_paths([str(root / "link")], policy)
+
+    def test_no_roots_strict_refuses(self, tmp_path):
+        from defair.config import ContainerConfig
+
+        with pytest.raises(PermissionError, match="No evidence roots"):
+            container_service.validate_evidence_paths(
+                [str(tmp_path)], ContainerConfig(), strict=True,
+            )
+
+    def test_no_roots_lenient_allows(self, tmp_path):
+        from defair.config import ContainerConfig
+
+        resolved = container_service.validate_evidence_paths([str(tmp_path)], ContainerConfig())
+        assert resolved == [tmp_path.resolve()]
+
+    def test_hardening_kwargs(self):
+        import os
+
+        from defair.config import ContainerConfig
+
+        kwargs = container_service.hardening_kwargs(ContainerConfig())
+        assert kwargs["cap_drop"] == ["ALL"]
+        assert "no-new-privileges:true" in kwargs["security_opt"]
+        assert kwargs["network_mode"] == "none"
+        assert kwargs["read_only"] is True
+        assert "/tmp" in kwargs["tmpfs"]
+        assert kwargs["nano_cpus"] == 4_000_000_000
+        assert kwargs["user"] == f"{os.getuid()}:{os.getgid()}"
+
+    def test_hardening_rootfs_optional(self):
+        from defair.config import ContainerConfig
+
+        kwargs = container_service.hardening_kwargs(ContainerConfig(read_only_rootfs=False))
+        assert "read_only" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_create_applies_hardening(self, mock_docker_client, tmp_path):
+        mock_docker_client.containers.create = MagicMock(return_value=_make_mock_container())
+        mock_docker_client.images.get = MagicMock()
+
+        with patch.object(container_service, "_get_client", return_value=mock_docker_client), \
+             patch.object(container_service, "WORKSPACE_BASE", tmp_path / "workspaces"):
+            await container_service.create_container(case_id="CASE-2026-001")
+
+        kwargs = mock_docker_client.containers.create.call_args.kwargs
+        assert kwargs["cap_drop"] == ["ALL"]
+        assert kwargs["network_mode"] == "none"
+        assert kwargs["environment"]["HOME"] == "/tmp"
+
+    @pytest.mark.asyncio
+    async def test_create_refuses_foreign_image(self, mock_docker_client, tmp_path):
+        with patch.object(container_service, "_get_client", return_value=mock_docker_client), \
+             patch.object(container_service, "WORKSPACE_BASE", tmp_path / "workspaces"), \
+             pytest.raises(ValueError, match="not allowed"):
+            await container_service.create_container(image="alpine:latest")
+        mock_docker_client.containers.create.assert_not_called()

@@ -86,22 +86,41 @@ class TestMCPContainerTools:
         assert data[0]["name"] == "defair-case-2026-001"
 
     @pytest.mark.asyncio
-    @patch("defair.mcp_server.server.container_service")
-    async def test_exec_in_container(self, mock_cs, mcp_server):
-        mock_cs.exec_in_container = AsyncMock(return_value={
-            "exit_code": 0,
-            "stdout": "total 0\n",
-            "stderr": "",
-        })
+    async def test_exec_in_container_disabled_by_default(self, mcp_server):
+        names = {t.name for t in await mcp_server.list_tools()}
+        assert "exec_in_container" not in names
+        assert "run_tool" in names
 
-        result = await mcp_server.call_tool(
-            "exec_in_container",
-            {"name_or_id": "defair-case-2026-001", "command": "ls /evidence"},
+    @pytest.mark.asyncio
+    async def test_exec_in_container_enabled_by_flag(self):
+        import importlib
+
+        import defair.mcp_server.server as server_module
+        from defair.config import DefairConfig
+
+        enabled = DefairConfig(mcp={"allow_exec": True})
+        try:
+            with patch("defair.config.load_config", return_value=enabled):
+                reloaded = importlib.reload(server_module)
+            names = {t.name for t in await reloaded.mcp.list_tools()}
+            assert "exec_in_container" in names
+        finally:
+            importlib.reload(server_module)
+
+    @pytest.mark.asyncio
+    @patch("defair.mcp_server.server.container_service")
+    async def test_create_container_enforces_policy(self, mock_cs, mcp_server):
+        mock_cs.create_container = AsyncMock(return_value=ContainerInfo(
+            name="defair-x", container_id="a", status="created", image="img",
+        ))
+        mock_cs.DEFAULT_IMAGE = "ghcr.io/joblinours/defair:latest"
+
+        await mcp_server.call_tool(
+            "create_container", {"case_id": "CASE-2026-001", "start": False},
         )
-        text = _get_text(result)
-        data = json.loads(text)
-        assert data["exit_code"] == 0
-        assert "total" in data["stdout"]
+        kwargs = mock_cs.create_container.call_args.kwargs
+        assert kwargs["strict_evidence_roots"] is True
+        assert kwargs["policy"] is not None
 
     @pytest.mark.asyncio
     @patch("defair.mcp_server.server.container_service")
@@ -322,3 +341,47 @@ class TestMCPEvidenceTools:
         )
         text = _get_text(result)
         assert "INTEGRITY FAILURE" in text or "modified" in text
+
+
+# ---------------------------------------------------------------------------
+# run_tool (v0.3.6) — the safe replacement for arbitrary exec
+# ---------------------------------------------------------------------------
+
+
+class TestMCPRunTool:
+    @pytest.mark.asyncio
+    @patch("defair.mcp_server.server.container_service")
+    async def test_run_tool_proxies_analyze(self, mock_cs, mcp_server):
+        mock_cs.exec_in_container = AsyncMock(return_value={
+            "exit_code": 0, "stdout": "ok", "stderr": "",
+        })
+        await mcp_server.call_tool("run_tool", {
+            "container": "defair-case-2026-001",
+            "tool": "hayabusa",
+            "input_path": "/evidence/logs",
+            "case_id": "CASE-2026-001",
+            "options": {"min_level": "high"},
+            "directory": True,
+        })
+        cmd = mock_cs.exec_in_container.call_args.args[1]
+        assert cmd[:4] == ["defair", "analyze", "hayabusa", "/evidence/logs"]
+        assert "--directory" in cmd
+        assert cmd[cmd.index("--option") + 1] == "min_level=high"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("payload, message", [
+        ({"tool": "rm", "input_path": "/evidence/x"}, "Unknown tool"),
+        ({"tool": "mftecmd", "input_path": "/etc/shadow"}, "must be under"),
+        ({"tool": "mftecmd", "input_path": "/evidence/../etc"}, "must be under"),
+        ({"tool": "mftecmd", "input_path": "/evidence/$MFT",
+          "options": {"shell": "id"}}, "not allowed"),
+        ({"tool": "evtxecmd", "input_path": "/evidence/logs",
+          "options": {"maps_dir": "/etc"}}, "must be under"),
+    ])
+    @patch("defair.mcp_server.server.container_service")
+    async def test_run_tool_rejects(self, mock_cs, mcp_server, payload, message):
+        mock_cs.exec_in_container = AsyncMock()
+        args = {"container": "c", "case_id": "CASE-2026-001", **payload}
+        with pytest.raises(Exception, match=message):
+            await mcp_server.call_tool("run_tool", args)
+        mock_cs.exec_in_container.assert_not_called()

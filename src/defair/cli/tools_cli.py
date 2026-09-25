@@ -202,6 +202,10 @@ def discover_cmd(ctx: click.Context, evidence_path: str, no_recursive: bool) -> 
     "--no-logs/--with-logs", "no_logs", default=True,
     help="Skip transaction log replay (--nl). Default: skip. Use --with-logs on dirty hives for complete data.",
 )
+@click.option(
+    "--option", "-O", "options", multiple=True,
+    help="Tool option as key=value (must be declared in the tool manifest).",
+)
 @click.pass_context
 def analyze_cmd(
     ctx: click.Context,
@@ -213,6 +217,7 @@ def analyze_cmd(
     directory: bool,
     normalize: bool,
     no_logs: bool,
+    options: tuple[str, ...],
 ) -> None:
     """Run a forensic tool against evidence.
 
@@ -220,7 +225,18 @@ def analyze_cmd(
       defair analyze mftecmd /evidence/$MFT --case CASE-2026-001
       defair analyze evtxecmd /evidence/logs/ --case CASE-2026-001 --directory
       defair analyze recmd /evidence/NTUSER.DAT --case CASE-2026-001 --with-logs
+      defair analyze hayabusa /evidence/logs --case CASE-2026-001 -O min_level=high
     """
+    from defair.services.analysis_service import parse_option_pairs, validate_tool_request
+
+    try:
+        tool_options = validate_tool_request(
+            tool_name, input_path, parse_option_pairs(options), strict_paths=False,
+        )
+    except ValueError as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise SystemExit(2)
+
     container = get_container_or_fail(ctx)
     if container:
         cmd = ["analyze", tool_name, input_path, "--case", case_id]
@@ -232,6 +248,8 @@ def analyze_cmd(
             cmd.append("--directory")
         if not no_logs:
             cmd.append("--with-logs")
+        for opt in options:
+            cmd.extend(["--option", opt])
         return proxy_command(container, cmd)
 
     from defair.services import analysis_service
@@ -261,7 +279,7 @@ def analyze_cmd(
                     return
                 resolved_evidence_id = ev.id
 
-            kwargs = {}
+            kwargs = dict(tool_options)
             if directory:
                 kwargs["directory"] = True
             kwargs["no_logs"] = no_logs

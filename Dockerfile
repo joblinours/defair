@@ -1,129 +1,130 @@
-FROM python:3.13-slim
+# =============================================================================
+# DEFAIR — forensic worker image (built in CI, pulled from GHCR)
+# =============================================================================
+# Stages:
+#   fetch   → pinned downloads, every archive checked against
+#             docker/checksums.sha256 (build fails on any mismatch)
+#   wheels  → Python wheels, C extensions compiled here only
+#   final   → runtime image, no compiler, no download tooling
+#
+# Bumping a tool: update its ARG / docker/checksums.sha256 in a reviewed commit.
+# EZ Tools are served under unversioned URLs: an upstream release changes the
+# archive and fails the checksum on purpose until the new hash is pinned.
+# =============================================================================
 
-LABEL maintainer="joblinours"
-LABEL description="DEFAIR — Digital Forensics & Incident Response platform"
+ARG PYTHON_IMAGE=python:3.13-slim
 
-# Prevent Python from writing .pyc and enable unbuffered output
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# -----------------------------------------------------------------------------
+# Stage 1 — fetch (pinned + checksummed downloads)
+# -----------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS fetch
 
-WORKDIR /app
+ARG HAYABUSA_VERSION=4.1.0
+ARG DOTNET_VERSION=9.0.20
+ARG DOTNET_SHA512=aaa63e9156fcc9d1c51e15fb38e3c5388a7721ef1b64065c8865b03133906e9de967ae33903c198c6acb9aa8bbae373e9001405074009c2ef2a0bb6e54b509a5
+ARG YARA_RULES_COMMIT=0f93570194a80d2f2032869055808b0ddcdfb360
 
-# -----------------------------------------------------------------------
-# System dependencies for EZ Tools (.NET) and forensic tools
-# -----------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    unzip \
-    curl \
-    libicu-dev \
-    sqlite3 \
-    build-essential \
-    pkg-config \
+        curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# -----------------------------------------------------------------------
-# Install .NET 9.0 runtime (required for EZ Tools net9 builds)
-# -----------------------------------------------------------------------
-RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 9.0 --runtime dotnet --install-dir /usr/share/dotnet \
-    && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
-    && rm /tmp/dotnet-install.sh
+WORKDIR /dl
+COPY docker/checksums.sha256 docker/write_versions.py ./
 
-ENV DOTNET_ROOT=/usr/share/dotnet
-ENV PATH="${PATH}:/usr/share/dotnet"
+ENV EZ_TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd"
 
-# -----------------------------------------------------------------------
-# Install EZ Tools (Eric Zimmerman's forensic tools)
-# Uses the official net9 builds from ericzimmermanstools.com
-# -----------------------------------------------------------------------
-ENV EZTOOLS_DIR=/opt/eztools
-RUN mkdir -p ${EZTOOLS_DIR}
+RUN set -eu; \
+    for tool in $EZ_TOOLS; do \
+        curl -sfL -A "Mozilla/5.0" -o "${tool}.zip" \
+            "https://download.ericzimmermanstools.com/net9/${tool}.zip"; \
+    done; \
+    curl -sfL -o "hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip" \
+        "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip"; \
+    curl -sfL -o yara-rules.zip \
+        "https://github.com/Yara-Rules/rules/archive/${YARA_RULES_COMMIT}.zip"; \
+    sha256sum -c checksums.sha256; \
+    curl -sfL -o dotnet.tar.gz \
+        "https://builds.dotnet.microsoft.com/dotnet/Runtime/${DOTNET_VERSION}/dotnet-runtime-${DOTNET_VERSION}-linux-x64.tar.gz"; \
+    echo "${DOTNET_SHA512}  dotnet.tar.gz" | sha512sum -c -
 
-# Download EZ Tools — net9 portable versions
-RUN cd /tmp && \
-    TOOLS="MFTECmd EvtxECmd RECmd PECmd AmcacheParser AppCompatCacheParser LECmd JLECmd RBCmd SBECmd WxTCmd SQLECmd SrumECmd" && \
-    for tool in $TOOLS; do \
-        echo "Downloading ${tool}..." && \
-        wget -q "https://download.ericzimmermanstools.com/net9/${tool}.zip" -O "${tool}.zip" && \
-        mkdir -p "${EZTOOLS_DIR}/${tool}" && \
-        unzip -q -o "${tool}.zip" -d "${EZTOOLS_DIR}/${tool}" && \
-        rm "${tool}.zip"; \
-    done
+# Unpack into the final layout
+RUN set -eu; \
+    mkdir -p /out/usr/share/dotnet /out/opt/eztools /out/opt/hayabusa /out/usr/local/bin /out/opt/yara/rules; \
+    tar -xzf dotnet.tar.gz -C /out/usr/share/dotnet; \
+    for tool in $EZ_TOOLS; do \
+        unzip -q -o "${tool}.zip" -d "/out/opt/eztools/${tool}"; \
+    done; \
+    unzip -q "hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip" -d hayabusa; \
+    cp "hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu" /out/usr/local/bin/hayabusa; \
+    chmod +x /out/usr/local/bin/hayabusa; \
+    cp -r hayabusa/rules hayabusa/config /out/opt/hayabusa/; \
+    unzip -q yara-rules.zip -d yara-rules; \
+    cp -r yara-rules/rules-*/* /out/opt/yara/rules/; \
+    python3 write_versions.py checksums.sha256 "${HAYABUSA_VERSION}" "${DOTNET_VERSION}"; \
+    mkdir -p /out/opt/defair && cp /opt/defair/versions.json /out/opt/defair/
 
-# Create wrapper scripts so tools are on PATH
-# Zips may nest with different casing (e.g. EvtxECmd/EvtxeCmd/) so we
-# search recursively and case-insensitively for the executable or DLL.
-RUN for tool_dir in ${EZTOOLS_DIR}/*/; do \
+# EZ Tools wrappers: zips may nest with different casing (EvtxECmd/EvtxeCmd/),
+# so search recursively and case-insensitively for the executable or DLL.
+RUN set -eu; \
+    for tool_dir in /out/opt/eztools/*/; do \
         tool_name=$(basename "$tool_dir"); \
-        # 1) Try native Linux executable (exact name, no extension)
-        exe=$(find "$tool_dir" -name "${tool_name}" -type f -executable 2>/dev/null | head -1); \
+        exe=$(find "$tool_dir" -name "${tool_name}" -type f -executable | head -1); \
         if [ -n "$exe" ]; then \
-            ln -sf "$exe" "/usr/local/bin/${tool_name}"; \
-            echo "  ✓ ${tool_name} → native ($exe)"; \
+            ln -sf "${exe#/out}" "/out/usr/local/bin/${tool_name}"; \
         else \
-            # 2) Try .NET DLL (case-insensitive search for nested dirs)
-            dll=$(find "$tool_dir" -iname "${tool_name}.dll" -type f 2>/dev/null | head -1); \
-            if [ -n "$dll" ]; then \
-                printf '#!/bin/sh\nexec dotnet "%s" "$@"\n' "$dll" > "/usr/local/bin/${tool_name}" && \
-                chmod +x "/usr/local/bin/${tool_name}"; \
-                echo "  ✓ ${tool_name} → dotnet ($dll)"; \
-            else \
-                echo "  ✗ ${tool_name} — no executable or DLL found"; \
-            fi; \
+            dll=$(find "$tool_dir" -iname "${tool_name}.dll" -type f | head -1); \
+            [ -n "$dll" ] || { echo "no executable or DLL for ${tool_name}" >&2; exit 1; }; \
+            printf '#!/bin/sh\nexec dotnet "%s" "$@"\n' "${dll#/out}" > "/out/usr/local/bin/${tool_name}"; \
+            chmod +x "/out/usr/local/bin/${tool_name}"; \
         fi; \
     done
 
-# -----------------------------------------------------------------------
-# Install Hayabusa (Sigma-based EVTX threat hunting)
-# -----------------------------------------------------------------------
-ARG HAYABUSA_VERSION=4.1.0
-RUN cd /tmp && \
-    wget -q "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu.zip" \
-        -O hayabusa.zip && \
-    unzip -q hayabusa.zip -d hayabusa && \
-    # Binary name matches the zip asset name (no .exe on Linux)
-    cp hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-gnu /usr/local/bin/hayabusa && \
-    chmod +x /usr/local/bin/hayabusa && \
-    # Copy bundled Sigma rules + config
-    mkdir -p /opt/hayabusa && \
-    cp -r hayabusa/rules /opt/hayabusa/ && \
-    cp -r hayabusa/config /opt/hayabusa/ && \
-    rm -rf hayabusa hayabusa.zip && \
-    echo "  ✓ Hayabusa ${HAYABUSA_VERSION} installed"
+# -----------------------------------------------------------------------------
+# Stage 2 — wheels (compilers live here only)
+# -----------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS wheels
 
-# -----------------------------------------------------------------------
-# Install YARA + community rules
-# -----------------------------------------------------------------------
-RUN pip install --no-cache-dir yara-python && \
-    mkdir -p /opt/yara/rules && \
-    cd /tmp && \
-    wget -q "https://github.com/Yara-Rules/rules/archive/refs/heads/master.zip" \
-        -O yara-rules.zip && \
-    unzip -q yara-rules.zip -d yara-rules && \
-    cp -r yara-rules/rules-master/* /opt/yara/rules/ && \
-    rm -rf yara-rules yara-rules.zip && \
-    echo "  ✓ YARA + community rules installed"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
-# -----------------------------------------------------------------------
-# Install DEFAIR Python package + Dissect
-# -----------------------------------------------------------------------
+WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src/ src/
-RUN pip install --no-cache-dir ".[forensic]"
+RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[forensic]"
 
-# -----------------------------------------------------------------------
-# Runtime setup
-# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Stage 3 — final runtime image
+# -----------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS final
 
-# Default data directory
-RUN mkdir -p /data /evidence /workspace
+LABEL org.opencontainers.image.title="DEFAIR" \
+      org.opencontainers.image.description="DEFAIR — Digital Forensics & Incident Response platform" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/joblinours/defair"
 
-ENV DEFAIR_DB_PATH=/data/defair.db
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DOTNET_ROOT=/usr/share/dotnet \
+    PATH="${PATH}:/usr/share/dotnet" \
+    EZTOOLS_DIR=/opt/eztools \
+    DEFAIR_DB_PATH=/data/defair.db
 
-# Mark as container
-RUN touch /.dockerenv
+# Runtime libraries only: ICU for .NET globalization, sqlite3 for SBECmd/SQLECmd
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libicu-dev sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Default: show help
+COPY --from=fetch /out/ /
+RUN ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+
+COPY --from=wheels /wheels /tmp/wheels
+RUN pip install --no-cache-dir --no-index --find-links /tmp/wheels "defair[forensic]" \
+    && rm -rf /tmp/wheels
+
+WORKDIR /app
+RUN mkdir -p /data /evidence /workspace /rules \
+    && chmod 1777 /data /workspace \
+    && touch /.dockerenv
+
 CMD ["defair", "--help"]

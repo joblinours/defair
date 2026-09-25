@@ -9,12 +9,15 @@ This runs on the HOST and communicates with Docker via the Docker SDK.
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import docker
 import docker.errors
 import structlog
+
+import docker
+from defair.config import ContainerConfig
 
 log = structlog.get_logger(component="container_service")
 
@@ -84,6 +87,76 @@ def _container_to_info(container) -> ContainerInfo:
     )
 
 
+def validate_image(image: str, policy: ContainerConfig) -> None:
+    """Refuse images outside the allowed registry prefixes."""
+    if not any(image.startswith(prefix) for prefix in policy.allowed_image_prefixes):
+        raise ValueError(
+            f"Image '{image}' is not allowed. Allowed prefixes: "
+            f"{', '.join(policy.allowed_image_prefixes) or '(none)'}"
+        )
+
+
+def validate_evidence_paths(
+    evidence_paths: list[str],
+    policy: ContainerConfig,
+    strict: bool = False,
+) -> list[Path]:
+    """Resolve evidence paths and check them against the allowed roots.
+
+    Symlinks are resolved first, so a link pointing outside a root is refused.
+
+    Args:
+        evidence_paths: Host paths requested for mounting.
+        policy: Container policy holding ``evidence_roots``.
+        strict: Refuse everything when no root is configured (MCP mode).
+
+    Returns:
+        The resolved paths.
+    """
+    roots = [Path(r).expanduser().resolve() for r in policy.evidence_roots]
+    if not roots:
+        if strict:
+            raise PermissionError(
+                "No evidence roots configured (container.evidence_roots in defair.yaml). "
+                "Mounting evidence through MCP is refused."
+            )
+        log.warning("evidence_roots_not_configured")
+
+    resolved = []
+    for ev_path in evidence_paths:
+        ev = Path(ev_path).expanduser().resolve()
+        if not ev.exists():
+            raise FileNotFoundError(f"Evidence path not found: {ev}")
+        if roots and not any(ev == root or ev.is_relative_to(root) for root in roots):
+            raise PermissionError(
+                f"Evidence path '{ev}' is outside the allowed evidence roots: "
+                f"{', '.join(str(r) for r in roots)}"
+            )
+        resolved.append(ev)
+    return resolved
+
+
+def hardening_kwargs(policy: ContainerConfig) -> dict:
+    """Docker ``containers.create`` kwargs isolating a forensic container.
+
+    The container runs as the host user so it can write the bind-mounted
+    workspace without CAP_DAC_OVERRIDE, with every capability dropped.
+    """
+    kwargs: dict = {
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges:true"],
+        "network_mode": policy.network,
+        "mem_limit": policy.mem_limit,
+        "nano_cpus": int(policy.cpus * 1_000_000_000),
+        "pids_limit": policy.pids_limit,
+        "user": f"{os.getuid()}:{os.getgid()}",
+    }
+    if policy.read_only_rootfs:
+        kwargs["read_only"] = True
+        kwargs["tmpfs"] = {"/tmp": f"size={policy.tmpfs_size}"}
+    return kwargs
+
+
 async def create_container(
     case_id: str | None = None,
     name: str | None = None,
@@ -92,6 +165,8 @@ async def create_container(
     workspace: str | None = None,
     ports: dict[str, int] | None = None,
     env: dict[str, str] | None = None,
+    policy: ContainerConfig | None = None,
+    strict_evidence_roots: bool = False,
 ) -> ContainerInfo:
     """Create a new DEFAIR forensic container.
 
@@ -103,10 +178,20 @@ async def create_container(
         workspace: Custom workspace path. Default: ~/.defair/workspaces/<name>/
         ports: Port mappings {container_port: host_port}.
         env: Environment variables to set in the container.
+        policy: Container policy (image allowlist, evidence roots, hardening).
+        strict_evidence_roots: Refuse mounts when no evidence root is configured.
 
     Returns:
         ContainerInfo with the created container details.
     """
+
+    policy = policy or ContainerConfig()
+    validate_image(image, policy)
+    evidence_list = [
+        str(p) for p in validate_evidence_paths(
+            evidence_paths or [], policy, strict=strict_evidence_roots and bool(evidence_paths),
+        )
+    ]
 
     def _create() -> ContainerInfo:
         client = _get_client()
@@ -134,13 +219,7 @@ async def create_container(
         # Mount evidence as read-only bind-mounts.
         # Single evidence path → mounted directly at /evidence
         # Multiple paths → mounted at /evidence/<dirname>
-        evidence_list = evidence_paths or []
         if evidence_list:
-            for ev_path in evidence_list:
-                ev = Path(ev_path).resolve()
-                if not ev.exists():
-                    raise FileNotFoundError(f"Evidence path not found: {ev}")
-
             if len(evidence_list) == 1:
                 # Single path: mount directly at /evidence
                 ev = Path(evidence_list[0]).resolve()
@@ -168,7 +247,13 @@ async def create_container(
             port_bindings = {f"{cp}/tcp": hp for cp, hp in ports.items()}
 
         # Environment
-        environment = {"DEFAIR_DB_PATH": "/workspace/defair.db"}
+        environment = {
+            "DEFAIR_DB_PATH": "/workspace/defair.db",
+            # Read-only rootfs + non-root user: every writable home is /tmp
+            "HOME": "/tmp",
+            "DOTNET_CLI_HOME": "/tmp",
+            "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
+        }
         if env:
             environment.update(env)
 
@@ -190,6 +275,7 @@ async def create_container(
             tty=True,
             detach=True,
             command="sleep infinity",  # Keep container alive
+            **hardening_kwargs(policy),
         )
 
         log.info(

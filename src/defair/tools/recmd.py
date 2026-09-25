@@ -29,6 +29,7 @@ class RECmdTool(BaseTool):
         return ToolManifest(
             name="recmd",
             display_name="RECmd",
+            allowed_options=["batch_file", "directory", "json_output", "no_logs", "use_default_batch"],
             vendor="Eric Zimmerman",
             description=(
                 "Windows Registry parser with batch processing. "
