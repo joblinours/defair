@@ -15,6 +15,14 @@ from typing import Any
 from defair.models.artifact import ArtifactCategory
 from defair.normalizers.base import BaseNormalizer, parse_timestamp
 
+LEVEL_ALIASES = {
+    "crit": "critical",
+    "emer": "critical",
+    "med": "medium",
+    "info": "informational",
+    "inf": "informational",
+}
+
 
 class HayabusaNormalizer(BaseNormalizer):
     """Normalize Hayabusa CSV output into detection artifacts."""
@@ -27,6 +35,8 @@ class HayabusaNormalizer(BaseNormalizer):
         level = (row.get("Level") or "").strip().lower()
         if not level:
             return None
+        # Hayabusa 4.x output profiles abbreviate levels
+        level = LEVEL_ALIASES.get(level, level)
 
         artifact_type = self._classify_detection(level)
         severity = self._map_severity(level)

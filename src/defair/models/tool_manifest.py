@@ -55,6 +55,8 @@ class ToolManifest(BaseModel):
     command: str = ""  # e.g. "/opt/eztools/MFTECmd" or "python -m dissect"
     runtime: str = "native"  # native, dotnet, python
     timeout: int = 3600  # Default timeout in seconds
+    # Working directory for tools that resolve data relative to it (Hayabusa)
+    cwd: str | None = None
     # Tools that print their results: stdout is streamed to this file
     stdout_file: str | None = None
     # Registered tool to run instead when this one fails (pure-Python parser)

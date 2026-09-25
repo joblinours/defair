@@ -22,7 +22,7 @@ class TestHayabusaTool:
         tool = HayabusaTool()
         cmd = tool.build_command("/evidence/logs", "/output")
         assert cmd[0] == "hayabusa"
-        assert "csv-timeline" in cmd
+        assert "dfir-timeline" in cmd  # Hayabusa 4.x
         assert "-d" in cmd
         assert cmd[cmd.index("-d") + 1] == "/evidence/logs"
         assert "-p" in cmd
@@ -48,8 +48,8 @@ class TestHayabusaTool:
     def test_build_command_min_level(self):
         tool = HayabusaTool()
         cmd = tool.build_command("/evidence", "/output", min_level="high")
-        assert "-l" in cmd
-        assert cmd[cmd.index("-l") + 1] == "high"
+        assert "-m" in cmd
+        assert cmd[cmd.index("-m") + 1] == "high"
 
 
 class TestHayabusaNormalizer:
@@ -148,3 +148,26 @@ class TestHayabusaNormalizer:
         assert artifacts[0]["severity"] == "high"
         assert artifacts[1]["artifact_type"] == "windows.hayabusa.detection"
         assert artifacts[1]["severity"] == "informational"
+
+
+class TestHayabusa4:
+    def test_runs_from_its_directory(self):
+        from defair.tools.hayabusa import HayabusaTool
+
+        assert HayabusaTool.manifest().cwd == "/opt/hayabusa"
+
+    def test_command_flags(self):
+        from defair.tools.hayabusa import HayabusaTool
+
+        cmd = HayabusaTool().build_command("/evidence/logs", "/out")
+        for flag in ("-w", "-C", "-K", "-q", "-Q"):
+            assert flag in cmd
+
+    def test_abbreviated_levels(self):
+        from defair.normalizers.hayabusa import HayabusaNormalizer
+
+        n = HayabusaNormalizer()
+        crit = n.normalize_row({"Level": "crit", "RuleTitle": "x", "Timestamp": "2023-03-24 22:02:43.512 +01:00"})
+        med = n.normalize_row({"Level": "med", "RuleTitle": "y"})
+        assert crit["severity"] == "critical" and crit["artifact_type"] == "windows.hayabusa.alert"
+        assert med["severity"] == "medium"

@@ -33,6 +33,8 @@ class HayabusaTool(BaseTool):
             category=ToolCategory.DETECTION,
             command="hayabusa",
             runtime="native",
+            # Hayabusa loads ./rules and ./config relative to its working dir
+            cwd="/opt/hayabusa",
             timeout=3600,
             capabilities=[
                 "sigma_detection", "threat_hunting", "evtx",
@@ -59,14 +61,17 @@ class HayabusaTool(BaseTool):
 
         output_file = f"{output_dir}/hayabusa_results.csv"
 
+        # Hayabusa 4.x syntax (csv-timeline became dfir-timeline in 3.x/4.x)
         cmd = [
-            "hayabusa", "csv-timeline",
+            "hayabusa", "dfir-timeline",
             "-d", input_path,
             "-o", output_file,
-            "-w",          # overwrite output
-            "-C",          # no color in output
+            "-w",          # no interactive wizard
+            "-C",          # clobber: overwrite the output file
+            "-K",          # no color
+            "-q",          # quiet: no launch banner
+            "-Q",          # no error log files (cwd is read-only in the container)
             "-p", profile,
-            "-q",          # quiet mode (no banner)
         ]
 
         # Custom rules directory
@@ -77,6 +82,6 @@ class HayabusaTool(BaseTool):
         # Minimum severity level filter
         min_level = kwargs.get("min_level")
         if min_level:
-            cmd.extend(["-l", min_level])
+            cmd.extend(["-m", min_level])
 
         return cmd

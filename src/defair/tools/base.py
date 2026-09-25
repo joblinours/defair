@@ -172,6 +172,7 @@ class BaseTool(ABC):
                 *cmd,
                 stdout=stdout_fh or asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=m.cwd if m.cwd and Path(m.cwd).is_dir() else None,
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
