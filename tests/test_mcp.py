@@ -385,3 +385,30 @@ class TestMCPRunTool:
         with pytest.raises(Exception, match=message):
             await mcp_server.call_tool("run_tool", args)
         mock_cs.exec_in_container.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Normalization + rules tools (v0.3.7 / v0.3.8) — proxied CLI commands
+# ---------------------------------------------------------------------------
+
+
+class TestMCPProxiedCommands:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tool, args, expected", [
+        ("normalize_replay", {"case_id": "CASE-2026-001"},
+         ["normalize", "replay", "--case", "CASE-2026-001"]),
+        ("normalize_rerun", {"run": "RUN-004"}, ["normalize", "rerun", "RUN-004"]),
+        ("get_normalization_stats", {"run": "RUN-004"}, ["normalize", "stats", "RUN-004"]),
+        ("export_timeline", {"case_id": "CASE-2026-001"},
+         ["timeline", "export", "--case", "CASE-2026-001", "--format", "timesketch"]),
+        ("get_ruleset_info", {"verify": True}, ["rules", "status", "--json", "--verify"]),
+        ("list_rule_conflicts", {"profile": "broad"}, ["rules", "conflicts", "--profile", "broad"]),
+        ("scan_evidence", {"input_path": "/evidence", "case_id": "CASE-2026-001", "profile": "precise"},
+         ["scan", "evidence", "/evidence", "--case", "CASE-2026-001", "--profile", "precise",
+          "--min-severity", "medium"]),
+    ])
+    @patch("defair.mcp_server.server.container_service")
+    async def test_proxies(self, mock_cs, mcp_server, tool, args, expected):
+        mock_cs.exec_in_container = AsyncMock(return_value={"exit_code": 0, "stdout": "{}", "stderr": ""})
+        await mcp_server.call_tool(tool, {"container": "defair-case-2026-001", **args})
+        assert mock_cs.exec_in_container.call_args.args[1] == ["defair", *expected]

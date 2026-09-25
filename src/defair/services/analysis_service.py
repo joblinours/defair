@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 import aiosqlite
 import structlog
@@ -186,13 +187,17 @@ async def run_tool_and_normalize(
     registry: ToolRegistry | None = None,
     **kwargs,
 ) -> dict:
-    """Execute a tool, normalize outputs, and store artifacts.
+    """Execute a tool, normalize its outputs, and store artifacts.
 
-    This is the high-level function that combines execution + normalization.
+    Normalization goes through the pipeline (JSONL + bulk insert, see
+    ``defair.normalizers.pipeline``). When the tool fails and its manifest
+    declares a pure-Python ``fallback``, the fallback runs as its own ToolRun
+    (``parameters.fallback_of`` = the failed run) and its result is returned.
 
     Returns:
         Summary dict with run details and artifact count.
     """
+    registry = registry or get_default_registry()
     tool_run = await run_tool(
         conn, tool_name, input_path, case_id,
         evidence_id=evidence_id,
@@ -201,36 +206,61 @@ async def run_tool_and_normalize(
         **kwargs,
     )
 
-    # Use the resolved UUID from tool_run (run_tool resolves case_number → UUID)
-    resolved_case_id = tool_run.case_id
-
-    # Normalize outputs
-    artifact_count = 0
-    if tool_run.status == ToolRunStatus.COMPLETED and tool_run.output_path:
-        normalizer = get_normalizer(tool_name)
-        if normalizer:
-            artifacts = normalizer.normalize_directory(
-                tool_run.output_path,
-                case_id=resolved_case_id,
+    fallback_name = registry.get(tool_name).manifest().fallback
+    if tool_run.status != ToolRunStatus.COMPLETED and fallback_name:
+        fallback = registry.get(fallback_name)
+        if fallback is not None and fallback.is_available():
+            log.warning("tool_failed_running_fallback", tool=tool_name,
+                        run=tool_run.run_number, fallback=fallback_name)
+            result = await run_tool_and_normalize(
+                conn, fallback_name, input_path, tool_run.case_id,
                 evidence_id=evidence_id,
-                run_id=tool_run.id,
+                output_base=output_base,
+                registry=registry,
+                fallback_of=tool_run.id,
             )
-            artifact_count = len(artifacts)
+            result["fallback_of"] = {
+                "tool": tool_name,
+                "run_number": tool_run.run_number,
+                "status": tool_run.status,
+            }
+            return result
 
-            # Store artifacts
-            for art in artifacts:
-                await _save_artifact(conn, art)
+    return await _summarize_and_normalize(conn, tool_run, evidence_id)
+
+
+async def _summarize_and_normalize(
+    conn: aiosqlite.Connection,
+    tool_run: ToolRun,
+    evidence_id: str | None,
+) -> dict:
+    from defair.normalizers.pipeline import normalize_run
+
+    stats: dict = {}
+    if tool_run.status == ToolRunStatus.COMPLETED and tool_run.output_path:
+        normalizer = get_normalizer(tool_run.tool_name)
+        if normalizer:
+            stats = await normalize_run(conn, {
+                "id": tool_run.id,
+                "run_number": tool_run.run_number,
+                "case_id": tool_run.case_id,
+                "evidence_id": evidence_id,
+                "tool_name": tool_run.tool_name,
+                "tool_version": tool_run.tool_version,
+                "output_path": tool_run.output_path,
+            }, normalizer)
 
     return {
         "run_id": tool_run.id,
         "run_number": tool_run.run_number,
-        "case_id": resolved_case_id,
-        "tool": tool_name,
+        "case_id": tool_run.case_id,
+        "tool": tool_run.tool_name,
         "status": tool_run.status,
         "exit_code": tool_run.exit_code,
         "duration_seconds": tool_run.duration_seconds,
         "output_files": len(tool_run.output_files),
-        "artifacts_produced": artifact_count,
+        "artifacts_produced": stats.get("normalized", 0),
+        "normalization": {k: v for k, v in stats.items() if k != "files"},
     }
 
 
@@ -330,46 +360,17 @@ async def _save_tool_run(conn: aiosqlite.Connection, run: ToolRun) -> None:
 
 
 async def _save_artifact(conn: aiosqlite.Connection, art: dict) -> None:
-    """Insert a normalized artifact into the database."""
-    from uuid import uuid4
+    """Insert one normalized artifact (outside a tool run's pipeline)."""
+    from defair.normalizers.pipeline import bulk_insert, next_artifact_sequence
 
-    from defair.models.artifact import generate_artifact_number
-
-    # Get next artifact number
-    cursor = await conn.execute("SELECT COUNT(*) FROM artifacts")
-    row = await cursor.fetchone()
-    count = row[0] if row else 0
-    art_number = generate_artifact_number(count + 1)
-
-    art_id = uuid4().hex
     category = art.get("category", "other")
-    if hasattr(category, "value"):
-        category = category.value
-
-    await conn.execute(
-        """INSERT INTO artifacts
-        (id, artifact_number, case_id, evidence_id, run_id,
-         artifact_type, category, source_tool, source_file,
-         timestamp, end_timestamp, hostname, username,
-         description, data, tags, severity, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            art_id, art_number,
-            art.get("case_id", ""), art.get("evidence_id"),
-            art.get("run_id"),
-            art.get("artifact_type", "unknown"),
-            category,
-            art.get("source_tool", ""),
-            art.get("source_file", ""),
-            art.get("timestamp"),
-            art.get("end_timestamp"),
-            art.get("hostname"),
-            art.get("username"),
-            art.get("description", ""),
-            json.dumps(art.get("data", {})),
-            json.dumps(art.get("tags", [])),
-            art.get("severity"),
-            datetime.now(UTC).isoformat(),
-        ),
-    )
-    await conn.commit()
+    row = {
+        **art,
+        "id": art.get("id") or uuid4().hex,
+        "artifact_number": art.get("artifact_number")
+        or f"ART-{await next_artifact_sequence(conn):03d}",
+        "artifact_type": art.get("artifact_type", "unknown"),
+        "category": getattr(category, "value", category),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    await bulk_insert(conn, [row])

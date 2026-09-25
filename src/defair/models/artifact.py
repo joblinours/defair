@@ -67,10 +67,19 @@ class Artifact(BaseModel):
     username: str | None = None
     description: str = ""
 
+    # Timeline (Timesketch-compatible): what the timestamp means + one-line message
+    timestamp_desc: str | None = None
+    message: str | None = None
+
     # Flexible data — tool-specific fields
     data: dict = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
     severity: str | None = None  # informational, low, medium, high, critical
+
+    # Normalization envelope: tool + version, run, source path, record id...
+    provenance: dict = Field(default_factory=dict)
+    # Stable key of the source record within its run (deterministic artifact id)
+    record_key: str | None = None
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

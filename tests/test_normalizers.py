@@ -54,7 +54,7 @@ class TestMFTECmdNormalizer:
         assert result["artifact_type"] == "windows.mft.file_entry"
         assert result["source_tool"] == "mftecmd"
         assert result["data"]["filename"] == "malware.exe"
-        assert result["data"]["created_si"] == "2026-01-15 14:30:00"
+        assert result["data"]["created_si"] == "2026-01-15T14:30:00Z"
 
 
 class TestEvtxNormalizer:

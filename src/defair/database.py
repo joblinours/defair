@@ -115,6 +115,60 @@ CREATE INDEX IF NOT EXISTS idx_findings_finding_number ON findings(finding_numbe
 """
 
 
+# Schema migrations, applied in order on top of SCHEMA_SQL. Each step is
+# idempotent (columns are only added when missing), so databases created by
+# any earlier DEFAIR version upgrade in place.
+SCHEMA_VERSION = 2
+
+_MIGRATION_COLUMNS: dict[int, list[tuple[str, str, str]]] = {
+    2: [
+        ("artifacts", "timestamp_desc", "TEXT"),
+        ("artifacts", "message", "TEXT"),
+        ("artifacts", "provenance", "TEXT DEFAULT '{}'"),
+        ("artifacts", "record_key", "TEXT"),
+        ("tool_runs", "normalization_stats", "TEXT DEFAULT '{}'"),
+    ],
+}
+
+_MIGRATION_SQL: dict[int, str] = {
+    2: """
+CREATE TABLE IF NOT EXISTS normalized_files (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES tool_runs(id),
+    case_id TEXT NOT NULL REFERENCES cases(id),
+    artifact_type TEXT NOT NULL,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    records INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_normalized_files_run ON normalized_files(run_id);
+CREATE INDEX IF NOT EXISTS idx_normalized_files_case ON normalized_files(case_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_record_key ON artifacts(run_id, record_key);
+""",
+}
+
+
+async def _columns(conn: aiosqlite.Connection, table: str) -> set[str]:
+    cursor = await conn.execute(f"PRAGMA table_info({table})")
+    return {row[1] for row in await cursor.fetchall()}
+
+
+async def migrate(conn: aiosqlite.Connection) -> int:
+    """Bring the schema up to SCHEMA_VERSION. Returns the resulting version."""
+    cursor = await conn.execute("PRAGMA user_version")
+    current = (await cursor.fetchone())[0]
+    for version in range(current + 1, SCHEMA_VERSION + 1):
+        for table, column, decl in _MIGRATION_COLUMNS.get(version, []):
+            if column not in await _columns(conn, table):
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        if version in _MIGRATION_SQL:
+            await conn.executescript(_MIGRATION_SQL[version])
+        await conn.execute(f"PRAGMA user_version = {version}")
+    await conn.commit()
+    return max(current, SCHEMA_VERSION)
+
+
 async def get_connection(db_path: str | Path) -> aiosqlite.Connection:
     """Open an async SQLite connection with WAL mode and foreign keys."""
     conn = await aiosqlite.connect(str(db_path))
@@ -128,6 +182,7 @@ async def init_db(conn: aiosqlite.Connection) -> None:
     """Create tables and indexes if they don't exist."""
     await conn.executescript(SCHEMA_SQL)
     await conn.commit()
+    await migrate(conn)
 
 
 async def get_initialized_connection(db_path: str | Path) -> aiosqlite.Connection:

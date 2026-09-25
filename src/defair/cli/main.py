@@ -10,6 +10,7 @@ from defair.cli.containers import container_group
 from defair.cli.evidence import evidence_group
 from defair.cli.findings import findings_group
 from defair.cli.hunt import hunt_cmd
+from defair.cli.normalize import normalize_group
 from defair.cli.rules import rules_group
 from defair.cli.scan import scan_group
 from defair.cli.search import search_cmd
@@ -84,3 +85,4 @@ cli.add_command(findings_group)
 cli.add_command(search_cmd)
 cli.add_command(scan_group)
 cli.add_command(rules_group)
+cli.add_command(normalize_group)

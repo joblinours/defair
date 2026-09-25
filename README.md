@@ -192,6 +192,11 @@ Available MCP tools:
 | `scan_evidence` | YARA + Sigma in a single pass |
 | `get_ruleset_info` | Pinned rule sources, installation and integrity status |
 | `list_rule_conflicts` | Duplicate / conflicting rules across sources |
+| **Normalization & export** *(v0.3.8)* | |
+| `export_timeline` | Export the timeline (Timesketch JSONL, JSONL, CSV) |
+| `normalize_replay` | Rebuild a case's artifacts from its normalized JSONL |
+| `normalize_rerun` | Re-normalize a tool run from its raw output |
+| `get_normalization_stats` | Normalization counters of a run |
 
 ### Docker
 
@@ -339,7 +344,7 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - **Pinned supply chain**: EZ Tools and Hayabusa pinned by version + SHA-256; tool versions stored in every `ToolRun` *(rule sets: see v0.3.7)*
 - **Analyst shell (CLI only)**: `defair container shell <case>` — interactive session in the case container, evidence `:ro`, never exposed via MCP *(≈ `hecatrace shell`)*
 
-### ✅ v0.3.7 — Raijin scan engine (vendored) + verified rule sets (current)
+### ✅ v0.3.7 — Raijin scan engine (vendored) + verified rule sets
 
 *Raijin (Rust, YARA-X + sigma-rust) is integrated **in-tree** (`engines/raijin/`) and is the single engine behind `scan_yara`, `scan_sigma` and `scan_evidence`.*
 
@@ -387,19 +392,24 @@ The roadmap below also closes the coverage gap with all-in-one DFIR toolboxes su
 - Hayabusa kept for `hunt_evtx` timeline enrichment, pinned by version + SHA-256
 - *Deferred:* offline rule updates from a verified bundle (`defair rules update --bundle`) — rules are updated by re-pinning the lock and rebuilding the image
 
-### 📋 v0.3.8 — Preprocessing & normalization pipeline
+### ✅ v0.3.8 — Preprocessing & normalization pipeline (current)
 
-*Inspired by [ArtefactProcessor / PyTriage](external_tool/artefactprocessor-master/), adapted to DEFAIR's provenance model.*
+*Inspired by ArtefactProcessor / PyTriage, adapted to DEFAIR's provenance model.*
 
-- **Two-stage normalization**: tool output → **normalized JSONL** in the workspace (`normalized/<artifact_type>/<source>.jsonl`, hashed) → **batched bulk insert** into the case database
-- **Replay without re-running tools**: `defair normalize replay --case CASE-xxx` rebuilds artifacts / timeline from the JSONL files (e.g. after a normalizer fix or DB loss)
-- **Common envelope on every record**: case, evidence, hostname, source file + original host path, channel / application slug, tool + version, `run_id`, record ID / offset
-- **Generic EVTX flattening**: `System` fields + `EventData` / `UserData` `Data@Name` → flat keys, raw record kept for traceability
-- **EventID knowledge base** (`evtx_catalog.yaml`): channel → EventID → description, artifact category, MITRE technique — drives descriptions and typed views
-- **Timeline-ready fields** on every event: `timestamp` (ISO 8601 UTC, full precision), `timestamp_desc` (Created / Modified / Executed / Logon…), `message` — Timesketch-compatible export
-- **Pure-Python fallback parsers** (EVTX, Prefetch, LNK, JumpList…) when an external tool fails or is unavailable
-- Per-run counters: records read / normalized / rejected, with rejection reasons
-- **Not copied from ArtefactProcessor**: lossy `dd/mm/YYYY HH:MM:SS` timestamps, `datetime.now()` substituted for missing timestamps (fabricated evidence), silently swallowed exceptions — DEFAIR keeps `null` + an explicit parse error
+- **Two-stage normalization**: tool output → **normalized JSONL** (`/workspace/normalized/<artifact_type>/<RUN>.jsonl`, SHA-256 recorded in `normalized_files`) → **batched bulk insert** (2,000 rows per batch, numbering computed once per run instead of a `COUNT` + commit per row)
+- **Deterministic artifact ids** (`uuid5(run_id, record_key)`) — re-normalizing the same output yields the same ids and `ART-NNN` numbers, so findings stay linked
+- `defair normalize replay --case` rebuilds a case from its JSONL (files whose hash changed are refused); `defair normalize rerun RUN-xxx` re-normalizes from the raw tool output after a normalizer fix; `defair normalize stats RUN-xxx`
+- **Common envelope** on every artifact (`provenance`): tool + pinned version, run, evidence, source file, host path, channel, record id, raw value of any unparseable timestamp
+- **Timestamps**: ISO 8601 UTC with full source precision (EZ Tools' 7 fractional digits kept); an unparseable time stays `null` with a reason — never replaced by "now"; ambiguous `dd/mm` vs `mm/dd` formats are refused
+- **Timeline fields** on every event: `timestamp_desc` (Created ($SI), Last Executed, Event Logged…) and `message`; `defair timeline export --format timesketch` (MCP `export_timeline`)
+- **Generic EVTX flattening**: `System` + `EventData` / `UserData` → flat keys, for EvtxECmd's `Payload` and native records
+- **EventID knowledge base** (`src/defair/data/evtx_catalog.yaml`, 89 events: Security, System, Sysmon, PowerShell, RDP, Task Scheduler, Defender, WMI, BITS, USB): channel-aware type, category, description and MITRE techniques — add an event without code
+- **Pure-Python fallbacks**: `evtx_native` (pyevtx-rs) for EvtxECmd, `lnk_native` (LnkParse3) for LECmd — run automatically when the tool fails, as their own ToolRun linked by `fallback_of`
+- **Per-run counters** in `tool_runs.normalization_stats`: rows read, normalized, skipped, errors, unparseable timestamps, reasons
+- Schema migrations (`PRAGMA user_version`): databases from earlier versions upgrade in place
+- MCP: `normalize_replay`, `normalize_rerun`, `get_normalization_stats`, `export_timeline`
+- **Not copied from ArtefactProcessor**: lossy `dd/mm/YYYY HH:MM:SS` timestamps, `datetime.now()` substituted for missing times, silently swallowed exceptions
+- *Deferred:* JumpList pure-Python fallback
 
 ### 📋 v0.4 — Evidence sources + Orchestration + MCP profiles
 

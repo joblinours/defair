@@ -17,6 +17,8 @@ import structlog
 
 log = structlog.get_logger(component="timeline_service")
 
+EXPORT_FORMATS = ("csv", "jsonl", "timesketch")
+
 
 async def build_timeline(
     conn: aiosqlite.Connection,
@@ -170,7 +172,8 @@ async def export_timeline(
     Args:
         conn: DB connection.
         case_id: Case to export.
-        format: "csv" or "jsonl".
+        format: "csv", "jsonl" or "timesketch" (JSONL with message /
+            datetime / timestamp_desc, importable with timesketch_importer).
         output_path: Where to write (default: /workspace/timeline/).
         **filters: Same filters as search_timeline.
 
@@ -181,12 +184,17 @@ async def export_timeline(
     events = await search_timeline(conn, case_id, limit=100000, **filters)
 
     if not output_path:
-        output_path = f"/workspace/timeline/timeline_{case_id[:8]}.{format}"
+        suffix = "jsonl" if format == "timesketch" else format
+        output_path = f"/workspace/timeline/timeline_{case_id[:8]}.{suffix}"
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+    if format not in EXPORT_FORMATS:
+        raise ValueError(f"Unknown export format '{format}'. Use one of: {', '.join(EXPORT_FORMATS)}")
     if format == "csv":
         _export_csv(events, output_path)
+    elif format == "timesketch":
+        _export_timesketch(events, output_path)
     else:
         _export_jsonl(events, output_path)
 
@@ -205,7 +213,7 @@ def _export_csv(events: list[dict], path: str) -> None:
         return
 
     fields = [
-        "timestamp", "artifact_type", "category", "severity",
+        "timestamp", "timestamp_desc", "message", "artifact_type", "category", "severity",
         "hostname", "username", "description", "source_tool",
         "source_file", "data",
     ]
@@ -221,3 +229,30 @@ def _export_jsonl(events: list[dict], path: str) -> None:
     """Write events to JSONL."""
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(json.dumps(e, default=str) + "\n" for e in events)
+
+
+def _export_timesketch(events: list[dict], path: str) -> None:
+    """Timesketch JSONL: required ``message``, ``datetime``, ``timestamp_desc``."""
+    with open(path, "w", encoding="utf-8") as f:
+        for e in events:
+            data = e.get("data")
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except ValueError:
+                    data = {"raw": data}
+            record = {
+                "message": e.get("message") or e.get("description") or e.get("artifact_type"),
+                "datetime": e["timestamp"],
+                "timestamp_desc": e.get("timestamp_desc") or "Event Time",
+                "artifact_type": e.get("artifact_type"),
+                "artifact_number": e.get("artifact_number"),
+                "category": e.get("category"),
+                "severity": e.get("severity"),
+                "hostname": e.get("hostname"),
+                "username": e.get("username"),
+                "source_tool": e.get("source_tool"),
+                "source_file": e.get("source_file"),
+                "data": data,
+            }
+            f.write(json.dumps({k: v for k, v in record.items() if v is not None}, default=str) + "\n")

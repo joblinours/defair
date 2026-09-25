@@ -177,11 +177,23 @@ class RaijinNormalizer(BaseNormalizer):
         if not path.exists():
             return []
         artifacts: list[dict[str, Any]] = []
-        for event in self._read_jsonl(path):
+        for index, event in enumerate(self._read_jsonl(path)):
+            self.stats["rows_read"] += 1
             try:
-                artifacts.extend(self.normalize_event(event, **context))
+                produced = self.normalize_event(event, **context)
             except Exception as e:
+                self.stats["errors"] += 1
                 log.warning("raijin_event_error", error=str(e), event=str(event)[:200])
+                continue
+            if not produced:
+                self.stats["skipped"] += 1
+            for art in produced:
+                rule = art["data"]["rule"]
+                art["record_key"] = (
+                    f"{path.name}#{index}/{rule.get('engine')}:{rule.get('source')}:"
+                    f"{rule.get('id') or rule.get('name')}"
+                )
+            artifacts.extend(produced)
         log.info("normalizer_completed", tool=self.tool_name, file=path.name,
                  artifacts_produced=len(artifacts))
         return artifacts

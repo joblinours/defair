@@ -172,7 +172,7 @@ def timeline_search(
 
 @timeline_group.command("export")
 @click.option("--case", "case_id", required=True, help="Case ID or case number.")
-@click.option("--format", "fmt", default="csv", type=click.Choice(["csv", "jsonl"]), help="Export format.")
+@click.option("--format", "fmt", default="csv", type=click.Choice(["csv", "jsonl", "timesketch"]), help="Export format (timesketch = Timesketch JSONL).")
 @click.option("--output", "output_path", default=None, help="Output file path.")
 @click.pass_context
 def timeline_export(ctx: click.Context, case_id: str, fmt: str, output_path: str | None) -> None:

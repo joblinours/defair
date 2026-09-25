@@ -78,7 +78,16 @@ defair-mcp
 - `src/defair/normalizers/hayabusa.py` — Hayabusa normalizer (v0.3)
 - `src/defair/normalizers/yara.py` — YARA normalizer (v0.3.5)
 - `src/defair/services/scanning_service.py` — Mass scanning orchestration (v0.3.5)
-- `src/defair/database.py` — SQLite schema and connection management
+- `src/defair/tools/raijin.py` — Raijin YARA + Sigma scanner wrapper (v0.3.7, replaces yara_scanner)
+- `src/defair/normalizers/raijin.py` — Raijin normalizer, resolves rule provenance (v0.3.7)
+- `src/defair/rules/` — rule supply chain: `sources.yaml`, `lock/` (pinned refs + per-file SHA-256), sync / verify / assemble / conflicts (v0.3.7)
+- `engines/raijin/` — vendored Raijin (Rust); changes listed in `engines/raijin/LICENSING.md`
+- `src/defair/normalizers/pipeline.py` — normalization pipeline: envelope, UTC timestamps, deterministic ids, JSONL, bulk insert (v0.3.8)
+- `src/defair/normalizers/timestamps.py` — `to_utc_iso` / `parse_timestamp` (v0.3.8)
+- `src/defair/normalizers/evtx_flatten.py` + `src/defair/data/evtx_catalog.yaml` — EVTX flattening + EventID knowledge base (v0.3.8)
+- `src/defair/services/normalization_service.py` — replay / rerun / stats (v0.3.8)
+- `src/defair/tools/native.py`, `evtx_native.py`, `lnk_native.py` — pure-Python fallback parsers (v0.3.8)
+- `src/defair/database.py` — SQLite schema, migrations (`PRAGMA user_version`) and connection management
 - `src/defair/config.py` — YAML config with Pydantic validation
 
 ## v0.3 capabilities
@@ -93,6 +102,12 @@ defair-mcp
 - **Finding IDs**: `FND-NNN` — auto-created from Hayabusa/YARA detections
 - **Custom rules**: Mount `/rules/yara/` and `/rules/sigma/` for custom rule sets
 
+## v0.3.6 → v0.3.8
+
+- **Hardening**: containers drop all capabilities, no network, read-only rootfs, host UID; evidence only from `container.evidence_roots`; MCP `run_tool` instead of shell
+- **Scan**: `defair scan yara|sigma|evidence --profile precise|broad` (Raijin); `defair rules status|verify|conflicts|lock|sync`
+- **Normalization**: `defair normalize replay|rerun|stats`; `defair timeline export --format timesketch`
+
 ## Conventions
 
 - Python 3.13+
@@ -102,3 +117,9 @@ defair-mcp
 - All timestamps in UTC, ISO 8601
 - Evidence is always read-only — never modify the source file
 - Docker images are always pulled from GHCR — never build locally
+- Every download in the image is pinned (version/commit + SHA-256): `docker/checksums.sha256`, `src/defair/rules/lock/`
+- Detection rules: never add a source without pinning it (`defair rules lock --refresh`, review + commit the lock)
+- Timestamps: always through `to_utc_iso` / `parse_timestamp`; never substitute "now" for a missing time
+- Artifacts are inserted through the normalization pipeline (`normalize_run` / `bulk_insert`), never row by row
+- MCP never exposes arbitrary shell: `exec_in_container` only exists with `mcp.allow_exec: true`; agents use `run_tool`
+- `external_tool/` holds reference sources and is never committed

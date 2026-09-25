@@ -25,6 +25,7 @@ class EvtxECmdTool(BaseTool):
             name="evtxecmd",
             display_name="EvtxECmd",
             allowed_options=["directory", "json_output", "maps_dir"],
+            fallback="evtx_native",
             vendor="Eric Zimmerman",
             description="Windows Event Log parser. Parses .evtx files with event maps for structured output.",
             category=ToolCategory.EVENTLOG,

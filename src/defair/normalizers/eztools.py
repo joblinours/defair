@@ -7,10 +7,12 @@ specific column names and formats each tool produces.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from defair.models.artifact import ArtifactCategory
 from defair.normalizers.base import BaseNormalizer, parse_timestamp
+from defair.normalizers.evtx_flatten import flatten_event, lookup_event
 
 
 class MFTECmdNormalizer(BaseNormalizer):
@@ -57,8 +59,29 @@ class MFTECmdNormalizer(BaseNormalizer):
         }
 
 
+def classify_evtx(event_id: Any, channel: str | None) -> dict:
+    """Artifact type, category, description and MITRE ids from the EventID catalog."""
+    entry = lookup_event(channel, event_id) or {}
+    category = entry.get("category", "other")
+    return {
+        "artifact_type": entry.get("type", "windows.evtx.generic"),
+        "category": ArtifactCategory(category) if category in ArtifactCategory else ArtifactCategory.OTHER,
+        "catalog_description": entry.get("description"),
+        "mitre": entry.get("mitre", []),
+    }
+
+
+def _parse_payload(payload: Any) -> dict:
+    if not payload or not isinstance(payload, str):
+        return {}
+    try:
+        return flatten_event(json.loads(payload))
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
 class EvtxECmdNormalizer(BaseNormalizer):
-    """Normalize EvtxECmd CSV output."""
+    """Normalize EvtxECmd CSV output (classification from the EventID catalog)."""
 
     @property
     def tool_name(self) -> str:
@@ -67,17 +90,20 @@ class EvtxECmdNormalizer(BaseNormalizer):
     def normalize_row(self, row: dict[str, Any], **ctx) -> dict[str, Any] | None:
         event_id = row.get("EventId", "")
         channel = row.get("Channel", "")
-        artifact_type = self._classify_event(event_id, channel)
+        info = classify_evtx(event_id, channel)
+        description = row.get("MapDescription") or row.get("PayloadData1", "") or info["catalog_description"] or ""
+        record_number = row.get("RecordNumber")
 
-        return {
-            "artifact_type": artifact_type,
-            "category": self._categorize_event(event_id, channel),
+        artifact = {
+            "artifact_type": info["artifact_type"],
+            "category": info["category"],
             "source_tool": "evtxecmd",
             "source_file": row.get("SourceFile", ""),
             "timestamp": parse_timestamp(row.get("TimeCreated")),
             "hostname": row.get("Computer"),
             "username": row.get("UserName"),
-            "description": row.get("MapDescription", row.get("PayloadData1", "")),
+            "description": description,
+            "tags": [f"mitre:{t}" for t in info["mitre"]],
             "data": {
                 "event_id": event_id,
                 "channel": channel,
@@ -91,47 +117,17 @@ class EvtxECmdNormalizer(BaseNormalizer):
                 "payload_data5": row.get("PayloadData5", ""),
                 "payload_data6": row.get("PayloadData6", ""),
                 "executable_info": row.get("ExecutableInfo", ""),
-                "record_number": row.get("RecordNumber"),
+                "record_number": record_number,
                 "hidden_record": row.get("HiddenRecord"),
+                "event_data": _parse_payload(row.get("Payload")),
+                "catalog_description": info["catalog_description"],
+                "mitre_techniques": info["mitre"],
             },
             **ctx,
         }
-
-    def _classify_event(self, event_id: str, channel: str) -> str:
-        """Map event ID to specific artifact type."""
-        eid = str(event_id)
-        mapping = {
-            "4624": "windows.evtx.logon",
-            "4625": "windows.evtx.logon_failed",
-            "4634": "windows.evtx.logoff",
-            "4648": "windows.evtx.explicit_logon",
-            "4688": "windows.evtx.process_creation",
-            "4697": "windows.evtx.service_install",
-            "7045": "windows.evtx.service_install",
-            "1": "windows.evtx.sysmon_process_create",
-            "3": "windows.evtx.sysmon_network",
-            "4104": "windows.evtx.powershell_scriptblock",
-            "1102": "windows.evtx.audit_log_cleared",
-            "1149": "windows.evtx.rdp_connection",
-            "21": "windows.evtx.rdp_logon",
-            "25": "windows.evtx.rdp_reconnect",
-        }
-        return mapping.get(eid, "windows.evtx.generic")
-
-    def _categorize_event(self, event_id: str, channel: str) -> ArtifactCategory:
-        """Map event to SANS category."""
-        eid = str(event_id)
-        if eid in ("4624", "4625", "4634", "4648", "1149", "21", "25"):
-            return ArtifactCategory.ACCOUNT_USAGE
-        if eid in ("4688", "1"):
-            return ArtifactCategory.PROGRAM_EXECUTION
-        if eid in ("4697", "7045"):
-            return ArtifactCategory.PERSISTENCE
-        if eid == "3":
-            return ArtifactCategory.NETWORK_ACTIVITY
-        if "Microsoft-Windows-DriverFrameworks" in channel:
-            return ArtifactCategory.EXTERNAL_DEVICE
-        return ArtifactCategory.OTHER
+        if record_number:
+            artifact["record_key"] = f"{row.get('SourceFile', '')}#{record_number}"
+        return artifact
 
 
 class PrefetchNormalizer(BaseNormalizer):
@@ -583,6 +579,12 @@ NORMALIZER_MAP["hayabusa"] = HayabusaNormalizer
 from defair.normalizers.raijin import RaijinNormalizer
 
 NORMALIZER_MAP["raijin"] = RaijinNormalizer
+
+# Pure-Python fallback parsers
+from defair.normalizers.native import EvtxNativeNormalizer, LnkNativeNormalizer
+
+NORMALIZER_MAP["evtx_native"] = EvtxNativeNormalizer
+NORMALIZER_MAP["lnk_native"] = LnkNativeNormalizer
 
 
 def get_normalizer(tool_name: str) -> BaseNormalizer | None:

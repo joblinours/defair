@@ -14,6 +14,9 @@ from typing import Any
 
 import structlog
 
+# Re-exported: normalizers import parse_timestamp from base
+from defair.normalizers.timestamps import parse_timestamp
+
 log = structlog.get_logger(component="normalizer")
 
 
@@ -24,6 +27,13 @@ class BaseNormalizer(ABC):
     from a tool's output into an Artifact dict (without id/number, which
     are assigned by the service layer).
     """
+
+    @property
+    def stats(self) -> dict:
+        """Per-normalizer counters: rows read, skipped (filtered), errors."""
+        if "_stats" not in self.__dict__:
+            self.__dict__["_stats"] = {"rows_read": 0, "skipped": 0, "errors": 0}
+        return self.__dict__["_stats"]
 
     @property
     @abstractmethod
@@ -65,19 +75,30 @@ class BaseNormalizer(ABC):
 
         rows = self._read_file(path)
         artifacts = []
+        stats = self.stats
 
-        for row in rows:
+        for index, row in enumerate(rows):
+            stats["rows_read"] += 1
             try:
                 result = self.normalize_row(row, **context)
-                if result is not None:
-                    artifacts.append(result)
             except Exception as e:
+                stats["errors"] += 1
+                stats.setdefault("error_reasons", {})
+                reason = f"{type(e).__name__}: {e}"[:200]
+                stats["error_reasons"][reason] = stats["error_reasons"].get(reason, 0) + 1
                 log.warning(
                     "normalizer_row_error",
                     tool=self.tool_name,
                     error=str(e),
                     row_preview=str(row)[:200],
                 )
+                continue
+            if result is None:
+                stats["skipped"] += 1
+                continue
+            # Stable key: re-normalizing the same output yields the same key
+            result.setdefault("record_key", f"{path.name}#{index}")
+            artifacts.append(result)
 
         log.info(
             "normalizer_completed",
@@ -165,8 +186,4 @@ class BaseNormalizer(ABC):
         return rows
 
 
-def parse_timestamp(value: str | None) -> str | None:
-    """Attempt to parse a timestamp string, returning ISO format or None."""
-    if not value or value.strip() in ("", "N/A", "null", "0"):
-        return None
-    return value.strip()
+__all__ = ["BaseNormalizer", "parse_timestamp"]

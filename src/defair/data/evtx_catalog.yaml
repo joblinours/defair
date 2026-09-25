@@ -1,0 +1,125 @@
+# DEFAIR EventID knowledge base (inspired by ArtefactProcessor's mapping.json).
+#
+# channels:
+#   <Channel as written in the event>:     # "*" = any channel
+#     <EventID>:
+#       type: artifact type (windows.evtx.*)
+#       category: SANS FOR500 category (see models/artifact.py)
+#       description: short human description
+#       mitre: [ATT&CK technique ids]
+#
+# Add an event here — no code change needed.
+
+channels:
+  Security:
+    1102: {type: windows.evtx.audit_log_cleared, category: other, description: "Security audit log cleared", mitre: [T1070.001]}
+    4608: {type: windows.evtx.system_startup, category: system_info, description: "Windows is starting up"}
+    4616: {type: windows.evtx.time_changed, category: system_info, description: "System time changed", mitre: [T1070.006]}
+    4624: {type: windows.evtx.logon, category: account_usage, description: "Successful logon", mitre: [T1078]}
+    4625: {type: windows.evtx.logon_failed, category: account_usage, description: "Failed logon", mitre: [T1110]}
+    4634: {type: windows.evtx.logoff, category: account_usage, description: "Logoff"}
+    4647: {type: windows.evtx.logoff, category: account_usage, description: "User initiated logoff"}
+    4648: {type: windows.evtx.explicit_logon, category: account_usage, description: "Logon with explicit credentials", mitre: [T1078]}
+    4656: {type: windows.evtx.object_handle, category: file_folder_opening, description: "Handle to an object requested"}
+    4663: {type: windows.evtx.object_access, category: file_folder_opening, description: "Attempt to access an object"}
+    4672: {type: windows.evtx.special_privileges, category: account_usage, description: "Special privileges assigned to new logon", mitre: [T1078.002]}
+    4688: {type: windows.evtx.process_creation, category: program_execution, description: "Process created", mitre: [T1059]}
+    4689: {type: windows.evtx.process_exit, category: program_execution, description: "Process exited"}
+    4697: {type: windows.evtx.service_install, category: persistence, description: "Service installed", mitre: [T1543.003]}
+    4698: {type: windows.evtx.scheduled_task_created, category: persistence, description: "Scheduled task created", mitre: [T1053.005]}
+    4699: {type: windows.evtx.scheduled_task_deleted, category: persistence, description: "Scheduled task deleted", mitre: [T1053.005]}
+    4700: {type: windows.evtx.scheduled_task_enabled, category: persistence, description: "Scheduled task enabled", mitre: [T1053.005]}
+    4702: {type: windows.evtx.scheduled_task_updated, category: persistence, description: "Scheduled task updated", mitre: [T1053.005]}
+    4719: {type: windows.evtx.audit_policy_changed, category: other, description: "System audit policy changed", mitre: [T1562.002]}
+    4720: {type: windows.evtx.account_created, category: account_usage, description: "User account created", mitre: [T1136.001]}
+    4722: {type: windows.evtx.account_enabled, category: account_usage, description: "User account enabled"}
+    4723: {type: windows.evtx.password_change, category: account_usage, description: "Password change attempt"}
+    4724: {type: windows.evtx.password_reset, category: account_usage, description: "Password reset attempt", mitre: [T1098]}
+    4725: {type: windows.evtx.account_disabled, category: account_usage, description: "User account disabled", mitre: [T1531]}
+    4726: {type: windows.evtx.account_deleted, category: account_usage, description: "User account deleted", mitre: [T1531]}
+    4728: {type: windows.evtx.group_member_added, category: account_usage, description: "Member added to global security group", mitre: [T1098]}
+    4732: {type: windows.evtx.group_member_added, category: account_usage, description: "Member added to local security group", mitre: [T1098]}
+    4738: {type: windows.evtx.account_changed, category: account_usage, description: "User account changed", mitre: [T1098]}
+    4740: {type: windows.evtx.account_locked, category: account_usage, description: "User account locked out", mitre: [T1110]}
+    4756: {type: windows.evtx.group_member_added, category: account_usage, description: "Member added to universal security group", mitre: [T1098]}
+    4768: {type: windows.evtx.kerberos_tgt, category: account_usage, description: "Kerberos TGT requested", mitre: [T1558]}
+    4769: {type: windows.evtx.kerberos_service_ticket, category: account_usage, description: "Kerberos service ticket requested", mitre: [T1558.003]}
+    4771: {type: windows.evtx.kerberos_preauth_failed, category: account_usage, description: "Kerberos pre-authentication failed", mitre: [T1110]}
+    4776: {type: windows.evtx.ntlm_validation, category: account_usage, description: "NTLM credential validation", mitre: [T1550.002]}
+    4778: {type: windows.evtx.session_reconnected, category: account_usage, description: "Session reconnected to a window station", mitre: [T1021.001]}
+    4779: {type: windows.evtx.session_disconnected, category: account_usage, description: "Session disconnected from a window station"}
+    4798: {type: windows.evtx.group_enumeration, category: account_usage, description: "User's local group membership enumerated", mitre: [T1087.001]}
+    4799: {type: windows.evtx.group_enumeration, category: account_usage, description: "Security-enabled local group membership enumerated", mitre: [T1069.001]}
+    5140: {type: windows.evtx.share_access, category: network_activity, description: "Network share accessed", mitre: [T1021.002]}
+    5145: {type: windows.evtx.share_object_access, category: network_activity, description: "Network share object checked", mitre: [T1021.002]}
+    5156: {type: windows.evtx.wfp_connection, category: network_activity, description: "Windows Filtering Platform allowed a connection"}
+
+  System:
+    104: {type: windows.evtx.log_cleared, category: other, description: "Event log cleared", mitre: [T1070.001]}
+    6005: {type: windows.evtx.eventlog_started, category: system_info, description: "Event log service started"}
+    6006: {type: windows.evtx.eventlog_stopped, category: system_info, description: "Event log service stopped"}
+    7034: {type: windows.evtx.service_crashed, category: other, description: "Service terminated unexpectedly"}
+    7036: {type: windows.evtx.service_state, category: other, description: "Service entered a state"}
+    7040: {type: windows.evtx.service_start_type_changed, category: persistence, description: "Service start type changed", mitre: [T1543.003]}
+    7045: {type: windows.evtx.service_install, category: persistence, description: "Service installed", mitre: [T1543.003]}
+
+  Microsoft-Windows-Sysmon/Operational:
+    1: {type: windows.evtx.sysmon_process_create, category: program_execution, description: "Sysmon: process created", mitre: [T1059]}
+    2: {type: windows.evtx.sysmon_file_time_changed, category: file_folder_opening, description: "Sysmon: file creation time changed", mitre: [T1070.006]}
+    3: {type: windows.evtx.sysmon_network, category: network_activity, description: "Sysmon: network connection"}
+    5: {type: windows.evtx.sysmon_process_terminated, category: program_execution, description: "Sysmon: process terminated"}
+    6: {type: windows.evtx.sysmon_driver_loaded, category: persistence, description: "Sysmon: driver loaded", mitre: [T1543.003]}
+    7: {type: windows.evtx.sysmon_image_loaded, category: program_execution, description: "Sysmon: image loaded"}
+    8: {type: windows.evtx.sysmon_remote_thread, category: program_execution, description: "Sysmon: CreateRemoteThread", mitre: [T1055]}
+    10: {type: windows.evtx.sysmon_process_access, category: program_execution, description: "Sysmon: process accessed", mitre: [T1003.001]}
+    11: {type: windows.evtx.sysmon_file_create, category: file_download, description: "Sysmon: file created"}
+    12: {type: windows.evtx.sysmon_registry_object, category: persistence, description: "Sysmon: registry object created/deleted"}
+    13: {type: windows.evtx.sysmon_registry_value, category: persistence, description: "Sysmon: registry value set", mitre: [T1112]}
+    15: {type: windows.evtx.sysmon_file_stream, category: file_download, description: "Sysmon: file stream created (ADS)", mitre: [T1564.004]}
+    22: {type: windows.evtx.sysmon_dns_query, category: network_activity, description: "Sysmon: DNS query", mitre: [T1071.004]}
+    23: {type: windows.evtx.sysmon_file_delete, category: deleted_file, description: "Sysmon: file deleted (archived)", mitre: [T1070.004]}
+    25: {type: windows.evtx.sysmon_process_tampering, category: program_execution, description: "Sysmon: process tampering", mitre: [T1055.012]}
+
+  Microsoft-Windows-PowerShell/Operational:
+    4103: {type: windows.evtx.powershell_module, category: program_execution, description: "PowerShell module logging", mitre: [T1059.001]}
+    4104: {type: windows.evtx.powershell_scriptblock, category: program_execution, description: "PowerShell script block logged", mitre: [T1059.001]}
+
+  Windows PowerShell:
+    400: {type: windows.evtx.powershell_engine_start, category: program_execution, description: "PowerShell engine started", mitre: [T1059.001]}
+    403: {type: windows.evtx.powershell_engine_stop, category: program_execution, description: "PowerShell engine stopped"}
+    600: {type: windows.evtx.powershell_provider, category: program_execution, description: "PowerShell provider started", mitre: [T1059.001]}
+
+  Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational:
+    1149: {type: windows.evtx.rdp_connection, category: account_usage, description: "RDP user authentication succeeded", mitre: [T1021.001]}
+
+  Microsoft-Windows-TerminalServices-LocalSessionManager/Operational:
+    21: {type: windows.evtx.rdp_logon, category: account_usage, description: "RDP session logon", mitre: [T1021.001]}
+    22: {type: windows.evtx.rdp_shell_start, category: account_usage, description: "RDP shell start", mitre: [T1021.001]}
+    24: {type: windows.evtx.rdp_disconnect, category: account_usage, description: "RDP session disconnected"}
+    25: {type: windows.evtx.rdp_reconnect, category: account_usage, description: "RDP session reconnected", mitre: [T1021.001]}
+
+  Microsoft-Windows-TaskScheduler/Operational:
+    106: {type: windows.evtx.scheduled_task_registered, category: persistence, description: "Scheduled task registered", mitre: [T1053.005]}
+    140: {type: windows.evtx.scheduled_task_updated, category: persistence, description: "Scheduled task updated", mitre: [T1053.005]}
+    141: {type: windows.evtx.scheduled_task_deleted, category: persistence, description: "Scheduled task deleted", mitre: [T1053.005]}
+    200: {type: windows.evtx.scheduled_task_action, category: program_execution, description: "Scheduled task action started", mitre: [T1053.005]}
+    201: {type: windows.evtx.scheduled_task_action, category: program_execution, description: "Scheduled task action completed"}
+
+  Microsoft-Windows-Windows Defender/Operational:
+    1116: {type: windows.evtx.defender_detection, category: malware, description: "Defender detected malware"}
+    1117: {type: windows.evtx.defender_action, category: malware, description: "Defender took action on malware"}
+    5001: {type: windows.evtx.defender_disabled, category: other, description: "Defender real-time protection disabled", mitre: [T1562.001]}
+    5007: {type: windows.evtx.defender_config_changed, category: other, description: "Defender configuration changed", mitre: [T1562.001]}
+
+  Microsoft-Windows-WMI-Activity/Operational:
+    5857: {type: windows.evtx.wmi_provider, category: program_execution, description: "WMI provider loaded", mitre: [T1047]}
+    5860: {type: windows.evtx.wmi_temporary_consumer, category: persistence, description: "WMI temporary event consumer", mitre: [T1546.003]}
+    5861: {type: windows.evtx.wmi_permanent_consumer, category: persistence, description: "WMI permanent event consumer", mitre: [T1546.003]}
+
+  Microsoft-Windows-Bits-Client/Operational:
+    59: {type: windows.evtx.bits_job_start, category: file_download, description: "BITS transfer job started", mitre: [T1197]}
+    60: {type: windows.evtx.bits_job_stop, category: file_download, description: "BITS transfer job stopped", mitre: [T1197]}
+
+  Microsoft-Windows-DriverFrameworks-UserMode/Operational:
+    2003: {type: windows.evtx.usb_device, category: external_device, description: "Device driver host loaded (USB)"}
+    2100: {type: windows.evtx.usb_device, category: external_device, description: "Device PnP operation (USB)"}

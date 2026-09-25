@@ -97,10 +97,12 @@ def get_default_registry() -> ToolRegistry:
     from defair.tools.amcache_parser import AmcacheParserTool
     from defair.tools.appcompat_parser import AppCompatCacheParserTool
     from defair.tools.dissect_tool import DissectTool
+    from defair.tools.evtx_native import EvtxNativeTool
     from defair.tools.evtxecmd import EvtxECmdTool
     from defair.tools.hayabusa import HayabusaTool
     from defair.tools.jlecmd import JLECmdTool
     from defair.tools.lecmd import LECmdTool
+    from defair.tools.lnk_native import LnkNativeTool
     from defair.tools.mftecmd import MFTECmdTool
     from defair.tools.prefetch import PrefetchTool
     from defair.tools.raijin import RaijinTool
@@ -129,6 +131,8 @@ def get_default_registry() -> ToolRegistry:
         SQLECmdTool,
         SrumECmdTool,
         RaijinTool,
+        EvtxNativeTool,
+        LnkNativeTool,
     ]:
         registry.register(tool_cls())
 

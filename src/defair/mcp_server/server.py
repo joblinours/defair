@@ -1355,6 +1355,91 @@ async def list_rule_conflicts(container: str, profile: str | None = None) -> str
     return await _proxy_defair(container, ["rules", "conflicts", *(["--profile", profile] if profile else [])])
 
 
+# ── Normalization pipeline + timeline export (v0.3.8) ────────────────
+
+
+@mcp.tool()
+async def export_timeline(
+    container: str, case_id: str, format: str = "timesketch",
+    output_path: str | None = None,
+) -> str:
+    """Export a case timeline to a file inside the container workspace.
+
+    Args:
+        container: Container name.
+        case_id: Case number.
+        format: "timesketch" (JSONL with message / datetime / timestamp_desc,
+                importable into Timesketch), "jsonl" or "csv".
+        output_path: Destination (default /workspace/timeline/).
+
+    Returns:
+        Export result (path, event count).
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="export_timeline", correlation_id=cid, container=container)
+    cmd = ["timeline", "export", "--case", case_id, "--format", format]
+    if output_path:
+        cmd.extend(["--output", output_path])
+    return await _proxy_defair(container, cmd)
+
+
+@mcp.tool()
+async def normalize_replay(container: str, case_id: str) -> str:
+    """Rebuild a case's artifacts from its normalized JSONL files.
+
+    Each file is checked against the SHA-256 recorded when it was written;
+    a modified or missing file is refused and reported. Artifact ids are
+    deterministic, so findings keep pointing at the same artifacts.
+
+    Args:
+        container: Container name.
+        case_id: Case number.
+
+    Returns:
+        Files loaded / refused and artifacts restored.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="normalize_replay", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["normalize", "replay", "--case", case_id])
+
+
+@mcp.tool()
+async def normalize_rerun(container: str, run: str) -> str:
+    """Re-normalize a tool run from its raw output (after a normalizer fix).
+
+    Args:
+        container: Container name.
+        run: Run number (RUN-NNN) or run id.
+
+    Returns:
+        Artifact counts before / after and normalization counters.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="normalize_rerun", correlation_id=cid, container=container)
+    return await _proxy_defair(container, ["normalize", "rerun", run])
+
+
+@mcp.tool()
+async def get_normalization_stats(container: str, run: str) -> str:
+    """Normalization counters of a tool run.
+
+    Rows read, artifacts normalized, rows skipped, errors, timestamps that
+    could not be parsed (kept as null, never invented) with reasons, and the
+    JSONL files produced with their SHA-256.
+
+    Args:
+        container: Container name.
+        run: Run number (RUN-NNN) or run id.
+
+    Returns:
+        JSON statistics.
+    """
+    cid = new_correlation_id()
+    log.info("mcp_tool_called", tool="get_normalization_stats", correlation_id=cid,
+             container=container)
+    return await _proxy_defair(container, ["normalize", "stats", run])
+
+
 def main() -> None:
     """Entry point for the DEFAIR MCP server (stdio transport)."""
     log.info("mcp_server_starting", transport="stdio")
