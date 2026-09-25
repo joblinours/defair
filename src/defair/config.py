@@ -66,6 +66,26 @@ class OrchestratorConfig(BaseModel):
     default_retries: int = 0
 
 
+class WorkerConfig(BaseModel):
+    """A dedicated worker image (heavy engines kept out of the main image).
+
+    Workers run as short-lived jobs next to the case container, with the same
+    hardening, evidence (read-only) and workspace mounts.
+    """
+
+    # Pinned by version tag — never ``latest``
+    image: str
+    mem_limit: str = "8g"
+    cpus: float = 4
+    pids_limit: int = 4096
+    tmpfs_size: str = "4g"
+    timeout: int = 12 * 3600  # seconds for the whole job
+
+
+def _default_workers() -> dict[str, WorkerConfig]:
+    return {"plaso": WorkerConfig(image="ghcr.io/joblinours/defair-worker-plaso:0.5.0")}
+
+
 class DefairConfig(BaseModel):
     """Root configuration for DEFAIR."""
 
@@ -75,6 +95,7 @@ class DefairConfig(BaseModel):
     container: ContainerConfig = ContainerConfig()
     extraction: ExtractionConfig = ExtractionConfig()
     orchestrator: OrchestratorConfig = OrchestratorConfig()
+    workers: dict[str, WorkerConfig] = Field(default_factory=_default_workers)
     timezone: str = "UTC"
 
     def resolve_paths(self) -> DefairConfig:

@@ -66,6 +66,18 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # main image: CLI, MCP, EZ Tools, Dissect, Raijin, Hayabusa, Chainsaw
+          - suffix: ""
+            dockerfile: Dockerfile
+            check: defair --version
+          # supertimeline worker: Plaso + Sleuth Kit (v0.5)
+          - suffix: "-worker-plaso"
+            dockerfile: docker/worker-plaso.Dockerfile
+            check: python3 -m defair.workers.check
 
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +93,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -96,13 +108,15 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=image${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=image${{ matrix.suffix }}
 
       - name: Verify published image
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(echo "${{ github.sha }}" | head -c 7)
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(echo "${{ github.sha }}" | head -c 7) defair --version
+          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}:sha-$(echo "${{ github.sha }}" | head -c 7)
+          docker pull "$IMAGE"
+          docker run --rm --network none "$IMAGE" ${{ matrix.check }}

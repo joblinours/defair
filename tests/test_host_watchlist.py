@@ -99,8 +99,10 @@ class TestHostProfile:
 
 class TestStrings:
     def test_boundaries_and_encodings(self, monkeypatch):
-        monkeypatch.setattr(strings_native, "CHUNK", 64)
-        monkeypatch.setattr(strings_native, "KEEP", 16)
+        from defair.workers import strings
+
+        monkeypatch.setattr(strings, "CHUNK", 64)
+        monkeypatch.setattr(strings, "KEEP", 16)
         data = b"\x00" * 50 + b"http://evil.example/x.exe" + b"\x01" * 20 + \
             "C:\\Temp\\mimi.exe".encode("utf-16-le") + b"\x02\x02" + b"ab\x00cd"
         found = list(strings_native.extract_strings(io.BytesIO(data), 6))

@@ -34,4 +34,11 @@ orchestrator:
   default_timeout: 7200   # seconds per step
   default_retries: 0
 
+workers:                  # dedicated worker images, run as jobs next to the case container
+  plaso:
+    image: ghcr.io/joblinours/defair-worker-plaso:0.5.0   # pinned tag, never latest
+    mem_limit: 8g
+    cpus: 4
+    timeout: 43200        # seconds for a whole supertimeline job
+
 timezone: UTC
