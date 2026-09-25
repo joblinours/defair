@@ -384,8 +384,8 @@ async def _save_tool_run(conn: aiosqlite.Connection, run: ToolRun) -> None:
     await conn.commit()
 
 
-async def _save_artifact(conn: aiosqlite.Connection, art: dict) -> None:
-    """Insert one normalized artifact (outside a tool run's pipeline)."""
+async def _save_artifact(conn: aiosqlite.Connection, art: dict) -> str:
+    """Insert one normalized artifact (outside a tool run's pipeline); returns its ART-NNN."""
     from defair.database import db_lock
     from defair.normalizers.pipeline import bulk_insert, next_artifact_sequence
 
@@ -401,3 +401,4 @@ async def _save_artifact(conn: aiosqlite.Connection, art: dict) -> None:
             "created_at": datetime.now(UTC).isoformat(),
         }
         await bulk_insert(conn, [row])
+    return row["artifact_number"]
